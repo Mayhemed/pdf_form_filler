@@ -1,4 +1,84 @@
-      Type: {label.field_type_hint}")
+#!/usr/bin/env python3
+"""
+Test Enhanced AI PDF Processing
+Tests the new direct PDF processing capabilities and verifies improvements
+"""
+
+import os
+import sys
+import json
+import time
+from pathlib import Path
+
+# Add project root to path
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "src"))
+
+def test_enhanced_ai_extraction():
+    """Test the enhanced AI extraction system"""
+    
+    print("🧪 Testing Enhanced AI PDF Processing v4.1")
+    print("=" * 60)
+    
+    # Check for API keys
+    openai_key = os.getenv("OPENAI_API_KEY")
+    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
+    
+    print(f"OpenAI API Key: {'✅ Available' if openai_key else '❌ Missing'}")
+    print(f"Anthropic API Key: {'✅ Available' if anthropic_key else '❌ Missing'}")
+    
+    if not (openai_key or anthropic_key):
+        print("\n❌ No API keys available. Please set OPENAI_API_KEY or ANTHROPIC_API_KEY")
+        return False
+    
+    # Test with a sample PDF (create if needed)
+    test_pdf = project_root / "test_form.pdf"
+    if not test_pdf.exists():
+        print(f"\n⚠️  Test PDF not found: {test_pdf}")
+        print("Please provide a sample PDF form to test with.")
+        return False
+    
+    try:
+        # Test 1: Enhanced AI Text Label Extractor
+        print(f"\n🔬 Test 1: Enhanced AI Text Label Extractor")
+        print("-" * 40)
+        
+        from src.core.enhanced_ai_label_extractor import EnhancedAITextLabelExtractor
+        
+        # Create test field mapping
+        test_field_mapping = {
+            1: {'full_field_name': 'petitioner_name', 'short_name': 'Petitioner', 'field_type': 'Text'},
+            2: {'full_field_name': 'respondent_name', 'short_name': 'Respondent', 'field_type': 'Text'},
+            3: {'full_field_name': 'case_number', 'short_name': 'Case Number', 'field_type': 'Text'},
+            4: {'full_field_name': 'court_county', 'short_name': 'County', 'field_type': 'Text'},
+            5: {'full_field_name': 'attorney_name', 'short_name': 'Attorney', 'field_type': 'Text'}
+        }
+        
+        # Test with auto provider selection
+        extractor = EnhancedAITextLabelExtractor(ai_provider="auto")
+        
+        start_time = time.time()
+        result = extractor.extract_ai_text_labels(test_pdf, test_field_mapping)
+        processing_time = time.time() - start_time
+        
+        print(f"✅ Extraction completed in {processing_time:.2f}s")
+        print(f"   Model used: {result.ai_model_used}")
+        print(f"   Labels extracted: {len(result.extracted_labels)}")
+        print(f"   Coverage: {result.verification.coverage_score:.1%}")
+        print(f"   Quality score: {result.verification.quality_score:.1%}")
+        
+        if result.verification.needs_review:
+            print(f"   ⚠️  Quality below threshold - review recommended")
+        else:
+            print(f"   ✅ Quality meets standards")
+        
+        # Show sample results
+        print(f"\n📋 Sample Extracted Labels:")
+        for i, label in enumerate(result.extracted_labels[:3]):
+            print(f"   Field {label.field_number}: {label.visible_text}")
+            print(f"      Confidence: {label.confidence:.1%}")
+            print(f"      Type: {label.field_type_hint}")
         
         # Test 2: Enhanced Form Mapper Integration
         print(f"\n🔬 Test 2: Enhanced Form Mapper Integration")
