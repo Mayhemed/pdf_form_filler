@@ -1,3 +1,7 @@
+
+# ENHANCED_PDF_PROCESSING_PATCH Applied
+# This file has been patched to use numbered PDF mapping for accurate field extraction
+# The AI now receives the numbered PDF to ensure precise field matching
 #!/usr/bin/env python3
 """
 AI-Powered PDF Form Filler v3 - Enhanced with 98%+ Accuracy AI Mapping
@@ -275,7 +279,10 @@ class AIDataExtractor(QThread):
         prompt = f"""
         You are extracting data from a COMPLETED PDF form to populate a blank PDF form with the same structure.
 
-TASK: Extract the client's actual responses/values from the completed form text below.
+TASK: Extract data from source documents to fill the numbered fields in the target form.
+
+IMPORTANT: You have access to a numbered mapping PDF that shows field locations with numbers (1, 2, 3, etc.).
+Use the NUMBERS to match data precisely to the correct fields.
 
 TARGET FORM FIELDS TO POPULATE:
 {json.dumps(dict(zip(field_names, field_descriptions)), indent=2)}
@@ -336,7 +343,16 @@ In these cases, you should focus on extracting form field values that might be p
             openai_model = self.model.replace("openai-", "")
             print(f"Calling llm_client.generate_with_openai with model: {openai_model}")
             
-            response_text = llm_client.generate_with_openai(openai_model, prompt)
+            # ENHANCED_PDF_PROCESSING_PATCH: Use numbered PDF for accurate field matching
+            mapping_info = self._create_form_mapping()
+            numbered_pdf_path = mapping_info.get("mapping_pdf") if mapping_info else None
+            
+            if numbered_pdf_path and os.path.exists(numbered_pdf_path):
+                print(f"DEBUG: Using numbered PDF for extraction: {numbered_pdf_path}")
+                response_text = llm_client.generate_with_openai(openai_model, prompt, None, numbered_pdf_path)
+            else:
+                print("DEBUG: No numbered PDF available, using text-only extraction")
+                response_text = llm_client.generate_with_openai(openai_model, prompt)
             print(f"OpenAI response received, length: {len(response_text)}")
             print(f"First 100 chars of response: {response_text[:100]}")
             
@@ -404,7 +420,10 @@ In these cases, you should focus on extracting form field values that might be p
             prompt = f"""
            You are extracting data from a COMPLETED PDF form to populate a blank PDF form with the same structure.
 
-TASK: Extract the client's actual responses/values from the completed form text below.
+TASK: Extract data from source documents to fill the numbered fields in the target form.
+
+IMPORTANT: You have access to a numbered mapping PDF that shows field locations with numbers (1, 2, 3, etc.).
+Use the NUMBERS to match data precisely to the correct fields.
 
 TARGET FORM FIELDS TO POPULATE:
 {json.dumps(dict(zip(field_names, field_descriptions)), indent=2)}
