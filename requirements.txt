@@ -1,22 +1,70 @@
-# Core dependencies
+# Enhanced PDF Form Filler v4.1 - Direct PDF Processing
+# Requirements for AI-powered form filling with enhanced accuracy
+
+# Core GUI and application
 PyQt6>=6.4.0
-PyPDF2>=3.0.0
-pdfplumber>=0.9.0
-
-# AI/ML libraries
-openai>=1.0.0
-anthropic>=0.7.0
-
-# PDF processing
-PyMuPDF>=1.23.0  # For PDF to image conversion
-
-# Additional utilities
-requests>=2.31.0
 python-dotenv>=1.0.0
 
-# Optional OCR support
-pytesseract>=0.3.10
+# PDF processing and text extraction
+PyPDF2>=3.0.0
+pdfplumber>=0.9.0
+pymupdf>=1.23.0
+
+# AI providers (choose one or both)
+openai>=1.0.0          # For GPT-4, GPT-4 Turbo, GPT-4V
+anthropic>=0.18.0      # For Claude 3 Opus, Sonnet
+
+# Image processing (for legacy image-based processing)
+pdf2image>=3.1.0
 Pillow>=10.0.0
 
-# Web scraping (optional)
-beautifulsoup4>=4.12.0
+# Data validation and configuration
+pydantic>=2.0.0
+pyyaml>=6.0.0
+
+# Enhanced text processing
+beautifulsoup4>=4.12.0  # For web scraping fallback
+requests>=2.31.0        # For HTTP requests
+
+# Optional OCR support
+pytesseract>=0.3.10     # For OCR fallback processing
+
+# Development and testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Performance monitoring
+psutil>=5.9.0          # For system resource monitoring
+
+# Enhanced logging
+colorlog>=6.7.0        # For colored console logging
+
+# Optional: Advanced AI features
+# transformers>=4.30.0   # For local AI models
+# torch>=2.0.0          # For PyTorch-based models
+# sentence-transformers>=2.2.0  # For semantic similarity
+
+# System dependencies to install separately:
+# macOS: 
+#   brew install pdftk-java
+#   brew install poppler
+# 
+# Ubuntu/Debian:
+#   sudo apt install pdftk
+#   sudo apt install poppler-utils
+#
+# Windows:
+#   Download pdftk from pdftk.org
+#   Download poppler from github.com/oschwartz10612/poppler-windows
+
+# Version info
+# This requirements file is for Enhanced PDF Form Filler v4.1
+# Key improvements:
+# - Direct PDF processing (no image conversion needed)
+# - Multi-pass AI analysis with fallback strategies  
+# - Enhanced quality verification and scoring
+# - Comprehensive error handling and logging
+# - Support for both OpenAI and Anthropic APIs
+# - Backward compatibility with existing systems

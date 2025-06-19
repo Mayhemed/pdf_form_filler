@@ -1,0 +1,48 @@
+FL-142 SCHEDULE OF ASSETS AND DEBTS - FILLED FORM
+======================================================================
+
+EXTRACTION AND FILLING DEMONSTRATION
+Generated from FL-120 and FL-142 source documents
+
+FORM HEADER INFORMATION:
+------------------------------
+Attorney: Mark Piesner
+Phone: (818) 638-4456
+Email: mark@arcpointlaw.com
+Case Number: 24STFL00615
+County: LOS ANGELES
+Petitioner: TAHIRA FRANCIS
+Respondent: SHAWN ROGERS
+
+DEBT INFORMATION:
+------------------------------
+Student Loans: $22000.00
+Unsecured Loans: $25000.00
+Credit Cards: $3042.81
+Other Debts: $16583.00
+TOTAL DEBTS: $64225.81
+
+TECHNICAL FIELD MAPPINGS:
+------------------------------
+TextField1[0] = Mark Piesner
+Phone[0] = (818) 638-4456
+Email[0] = mark@arcpointlaw.com
+Party1[0] = TAHIRA FRANCIS
+Party2[0] = SHAWN ROGERS
+CaseNumber[0] = 24STFL00615
+CrtCounty[0] = LOS ANGELES
+DecimalField40[0] = 22000.00
+DecimalField37[0] = 25000.00
+DecimalField36[0] = 3042.81
+DecimalField43[0] = 16583.00
+DecimalField41[0] = 64225.81
+
+Total fields filled: 12
+Form filling demonstration completed successfully!
+
+DATA SOURCES:
+------------------------------
+• Attorney info extracted from FL-120 (LexisNexis format)
+• Financial data extracted from FL-142 source form
+• Cross-document intelligent mapping performed
+• All role identifications (attorney vs client) verified

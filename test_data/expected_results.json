@@ -1,0 +1,209 @@
+{
+  "test_scenarios": {
+    "fl120_basic": {
+      "description": "Basic FL-120 form filling with standard data",
+      "target_form": "forms/fl120_blank.pdf",
+      "source_documents": ["sources/fl120_filled.pdf"],
+      "expected_fields": {
+        "Petitioner": "TAHIRA FRANCIS",
+        "Respondent": "SHAWN ROGERS", 
+        "CaseNumber": "24STFL00615",
+        "attorney_name": "Mark Piesner",
+        "attorney_phone": "(818) 638-4456",
+        "attorney_email": "mark@arcpointlaw.com",
+        "court_county": "LOS ANGELES"
+      },
+      "minimum_confidence": 0.8,
+      "expected_field_count": 15
+    },
+    
+    "fl142_comprehensive": {
+      "description": "Comprehensive FL-142 form with financial data",
+      "target_form": "forms/fl142_blank.pdf",
+      "source_documents": ["sources/fl142_filled.pdf"],
+      "expected_fields": {
+        "student_loans": "22000.00",
+        "credit_cards": "3042.81", 
+        "unsecured_loans": "25000.00",
+        "other_debts": "16583.00",
+        "total_debts": "64225.81",
+        "household_furniture": "10473.07",
+        "checking_account": "10473.07"
+      },
+      "minimum_confidence": 0.85,
+      "expected_field_count": 20
+    },
+    
+    "cross_form_extraction": {
+      "description": "Extract data from FL-120 to fill FL-142",
+      "target_form": "forms/fl142_blank.pdf", 
+      "source_documents": ["sources/fl120_filled.pdf"],
+      "expected_fields": {
+        "petitioner_name": "TAHIRA FRANCIS",
+        "respondent_name": "SHAWN ROGERS",
+        "case_number": "24STFL00615"
+      },
+      "minimum_confidence": 0.7,
+      "expected_field_count": 8
+    },
+    
+    "multi_source_extraction": {
+      "description": "Extract data from multiple sources",
+      "target_form": "forms/fl142_blank.pdf",
+      "source_documents": [
+        "sources/fl120_filled.pdf",
+        "sources/fl142_filled.pdf"
+      ],
+      "expected_fields": {
+        "petitioner_name": "TAHIRA FRANCIS",
+        "respondent_name": "SHAWN ROGERS", 
+        "case_number": "24STFL00615",
+        "attorney_name": "Mark Piesner",
+        "student_loans": "22000.00",
+        "credit_cards": "3042.81",
+        "total_debts": "64225.81"
+      },
+      "minimum_confidence": 0.8,
+      "expected_field_count": 25
+    },
+    
+    "generic_form_test": {
+      "description": "Test with a non-California form to verify generic capabilities",
+      "target_form": "forms/generic_tax_form.pdf",
+      "source_documents": ["sources/tax_data.json"],
+      "expected_fields": {
+        "taxpayer_name": "John Smith",
+        "ssn": "123-45-6789",
+        "income": "75000.00",
+        "address": "123 Main St, Anytown, CA"
+      },
+      "minimum_confidence": 0.7,
+      "expected_field_count": 10
+    }
+  },
+  
+  "performance_benchmarks": {
+    "processing_time": {
+      "single_form_max_seconds": 30,
+      "ai_extraction_max_seconds": 15,
+      "field_mapping_max_seconds": 5,
+      "pdf_filling_max_seconds": 5
+    },
+    
+    "accuracy_targets": {
+      "field_coverage_minimum": 0.80,
+      "data_accuracy_minimum": 0.95,
+      "confidence_score_minimum": 0.70
+    },
+    
+    "resource_usage": {
+      "max_memory_mb": 512,
+      "max_temp_files": 10,
+      "max_api_calls_per_form": 5
+    }
+  },
+  
+  "ai_provider_tests": {
+    "openai_gpt4v": {
+      "model": "gpt-4-vision-preview",
+      "test_prompt": "Extract petitioner and respondent names from this legal document.",
+      "expected_response_format": "json",
+      "max_tokens": 1000,
+      "expected_fields": ["petitioner", "respondent"]
+    },
+    
+    "anthropic_claude": {
+      "model": "claude-3-opus-20240229", 
+      "test_prompt": "Analyze this PDF form and extract financial data.",
+      "expected_response_format": "json",
+      "max_tokens": 2000,
+      "expected_fields": ["assets", "debts", "amounts"]
+    },
+    
+    "fallback_patterns": {
+      "method": "regex_and_rules",
+      "test_text": "PETITIONER: TAHIRA FRANCIS, RESPONDENT: SHAWN ROGERS, CASE: 24STFL00615",
+      "expected_extractions": {
+        "petitioner": "TAHIRA FRANCIS",
+        "respondent": "SHAWN ROGERS", 
+        "case_number": "24STFL00615"
+      }
+    }
+  },
+  
+  "edge_cases": {
+    "empty_source_documents": {
+      "description": "Handle empty or invalid source documents gracefully",
+      "target_form": "forms/fl120_blank.pdf",
+      "source_documents": [],
+      "expected_behavior": "graceful_failure_with_message"
+    },
+    
+    "corrupted_pdf": {
+      "description": "Handle corrupted PDF files",
+      "target_form": "forms/corrupted.pdf",
+      "source_documents": ["sources/fl120_filled.pdf"],
+      "expected_behavior": "error_with_clear_message"
+    },
+    
+    "non_fillable_form": {
+      "description": "Handle PDFs without fillable fields",
+      "target_form": "forms/scanned_form.pdf",
+      "source_documents": ["sources/fl120_filled.pdf"],
+      "expected_behavior": "error_with_suggestion"
+    },
+    
+    "large_files": {
+      "description": "Handle large PDF files efficiently",
+      "target_form": "forms/large_form.pdf",
+      "source_documents": ["sources/large_document.pdf"],
+      "max_processing_time": 60,
+      "max_memory_usage": 1024
+    }
+  },
+  
+  "validation_rules": {
+    "case_number_formats": {
+      "california": "^[0-9]{2}[A-Z]{2,4}[0-9]{5,8}$",
+      "examples": ["24STFL00615", "23SMFM12345"]
+    },
+    
+    "phone_formats": {
+      "us_standard": "^\\([0-9]{3}\\) [0-9]{3}-[0-9]{4}$",
+      "examples": ["(818) 638-4456", "(555) 123-4567"]
+    },
+    
+    "monetary_amounts": {
+      "format": "^[0-9]+\\.?[0-9]*$",
+      "examples": ["1000.00", "22000", "3042.81"]
+    },
+    
+    "dates": {
+      "formats": ["MM/DD/YYYY", "Month DD, YYYY"],
+      "examples": ["11/20/2021", "November 20, 2021"]
+    }
+  },
+  
+  "integration_tests": {
+    "gui_integration": {
+      "test_gui_loading": true,
+      "test_field_mapping_widget": true,
+      "test_ai_extraction_tab": true,
+      "test_progress_reporting": true
+    },
+    
+    "cli_integration": {
+      "test_single_form": true,
+      "test_batch_processing": true,
+      "test_form_analysis": true,
+      "test_ai_connectivity": true
+    },
+    
+    "api_integration": {
+      "test_openai_vision": true,
+      "test_claude_documents": true,
+      "test_fallback_patterns": true,
+      "test_error_handling": true
+    }
+  }
+}
