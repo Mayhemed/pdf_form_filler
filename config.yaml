@@ -1,0 +1,99 @@
+# Enhanced PDF Form Filler Configuration v4.1
+
+# AI Configuration
+ai_providers:
+  primary: "openai"
+  secondary: "anthropic"
+  local: null
+  
+  openai:
+    model: "gpt-4-vision-preview"
+    api_key_env: "OPENAI_API_KEY"
+    max_tokens: 4096
+    temperature: 0.1
+    
+  anthropic:
+    model: "claude-3-opus-20240229"
+    api_key_env: "ANTHROPIC_API_KEY"
+    max_tokens: 4096
+    temperature: 0.1
+
+# Enhanced Form Processing
+form_processing:
+  cache_enabled: true
+  cache_duration: "30d"
+  ai_label_extraction: true
+  confidence_threshold: 0.7
+  use_vision_models: true
+  fallback_to_basic: true
+  
+# AI Text Label Extraction
+ai_label_extraction:
+  enabled: true
+  pdf_to_image_dpi: 200
+  image_format: "PNG"
+  vision_detail_level: "high"
+  max_fields_per_prompt: 20
+  retry_on_failure: true
+  
+# Performance Settings
+performance:
+  parallel_processing: true
+  max_workers: 4
+  timeout_seconds: 300
+  batch_size: 10
+  
+# Caching Configuration
+caching:
+  enabled: true
+  cache_directory: "./cache"
+  form_mappings_subdir: "form_mappings"
+  ai_labels_subdir: "ai_labels"
+  cache_expiry_days: 30
+  
+# Logging Configuration
+logging:
+  level: "INFO"
+  file: "pdf_form_filler.log"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  max_file_size: "10MB"
+  backup_count: 5
+
+# Form Field Processing
+field_processing:
+  supported_field_types:
+    - "Text"
+    - "Choice"
+    - "Checkbox"
+    - "Signature"
+  
+  field_naming:
+    remove_prefixes:
+      - "topmostSubform[0]."
+      - "form1[0]."
+    remove_suffixes:
+      - "[0]"
+    replace_chars:
+      ".": "_"
+      " ": "_"
+      
+# Integration Settings
+integration:
+  python_form_filler3_compatible: true
+  auto_replace_functions: false
+  preserve_original_methods: true
+  
+# Error Handling
+error_handling:
+  retry_attempts: 3
+  fallback_strategies:
+    - "basic_pattern_matching"
+    - "simple_field_mapping"
+  graceful_degradation: true
+  
+# Development Settings
+development:
+  debug_mode: false
+  save_intermediate_files: true
+  verbose_logging: false
+  test_mode: false
