@@ -1,0 +1,227 @@
+{
+  "test_summary": {
+    "test_start_time": 1750375012.234627,
+    "overall_success": false,
+    "total_tests": 6,
+    "passed_tests": 3,
+    "failed_tests": 3,
+    "test_end_time": 1750375012.3413482,
+    "total_processing_time": 0.10672116279602051
+  },
+  "phase_results": {
+    "case_information": {
+      "test_name": "case_information_processing",
+      "success": false,
+      "details": {
+        "case_info": {
+          "case_number": "24STFL00615",
+          "court_county": "LOS",
+          "petitioner": "TAHIRA FRANCIS",
+          "respondent": "SHAWN ROGERS",
+          "case_type": "Family Law - Dissolution",
+          "attorney_name": "Mark Piesner",
+          "attorney_phone": "(818) 638-4456",
+          "attorney_email": "mark@arcpointlaw.com",
+          "attorney_address": null,
+          "marriage_date": "November 20, 2021",
+          "separation_date": "September 1, 2023",
+          "children_involved": false,
+          "property_disputes": true,
+          "support_requests": false,
+          "restraining_orders": false,
+          "special_instructions": null,
+          "filing_party": null
+        },
+        "ai_context_length": 780,
+        "field_priorities": {
+          "case_number": 10,
+          "party_names": 10,
+          "attorney_info": 9,
+          "court_info": 9,
+          "dates": 7,
+          "financial_info": 8,
+          "property_info": 8,
+          "child_info": 5,
+          "support_info": 5
+        },
+        "checks_passed": 9,
+        "total_checks": 10
+      },
+      "processing_time": 0.0020439624786376953,
+      "errors": [
+        "One or more case information checks failed"
+      ]
+    },
+    "fl120_extraction": {
+      "test_name": "fl120_extraction",
+      "success": true,
+      "details": {
+        "extracted_fields": 15,
+        "average_confidence": 0.8866666666666666,
+        "attorney_info_complete": true,
+        "case_info_complete": true,
+        "extraction_data": {
+          "attorney_name": "Mark Piesner",
+          "attorney_phone": "(818) 638-4456",
+          "attorney_email": "mark@arcpointlaw.com",
+          "attorney_address": "22287 Mulholland Hwy, #198, Calabasas CA 91302",
+          "petitioner": "TAHIRA FRANCIS",
+          "respondent": "SHAWN ROGERS",
+          "case_number": "24STFL00615",
+          "court_county": "LOS ANGELES",
+          "marriage_date": "November 20, 2021",
+          "separation_date": "September 1, 2023",
+          "property_description": "Deposit on Beverly Hills apartment",
+          "attorney_fees_requested": "Petitioner",
+          "signature_date": "December 12, 2024",
+          "respondent_signature": "SHAWN ROGERS",
+          "attorney_signature": "Mark Piesner"
+        },
+        "confidence_scores": {
+          "attorney_name": 0.95,
+          "attorney_phone": 0.9,
+          "attorney_email": 0.9,
+          "attorney_address": 0.85,
+          "petitioner": 0.95,
+          "respondent": 0.95,
+          "case_number": 0.95,
+          "court_county": 0.9,
+          "marriage_date": 0.85,
+          "separation_date": 0.85,
+          "property_description": 0.85,
+          "attorney_fees_requested": 0.85,
+          "signature_date": 0.85,
+          "respondent_signature": 0.85,
+          "attorney_signature": 0.85
+        }
+      },
+      "processing_time": 5.245208740234375e-06,
+      "errors": []
+    },
+    "fl142_extraction": {
+      "test_name": "fl142_extraction",
+      "success": false,
+      "details": {
+        "extracted_fields": 15,
+        "average_confidence": 0.9199999999999999,
+        "financial_data_complete": true,
+        "total_calculation_correct": false,
+        "calculated_total": "66,625.81",
+        "expected_total": "64,225.81",
+        "extraction_data": {
+          "student_loans": "22,000.00",
+          "unsecured_loans": "25,000.00",
+          "credit_cards": "3,042.81",
+          "other_debts": "16,583.00",
+          "total_debts": "64,225.81",
+          "household_furniture": "10,473.07",
+          "checking_accounts": "10,473.07",
+          "total_assets": "20,473.07",
+          "debtor_name": "SHAWN ROGERS",
+          "credit_card_details": "SHAWN ROGERS, 4147400430869428, CHASE P.O. BOX 15123 WILMINGTON, DE 19850-5123 AMERICAN EXPRESS",
+          "unsecured_loan_creditor": "Lynne Humphreys",
+          "other_debt_details": "Home Depot, Midland Credit Management Inc",
+          "signature_required": true,
+          "form_type": "FL-142",
+          "form_title": "SCHEDULE OF ASSETS AND DEBTS (Family Law)"
+        },
+        "confidence_scores": {
+          "student_loans": 0.95,
+          "unsecured_loans": 0.95,
+          "credit_cards": 0.95,
+          "other_debts": 0.95,
+          "total_debts": 0.95,
+          "household_furniture": 0.95,
+          "checking_accounts": 0.95,
+          "total_assets": 0.95,
+          "debtor_name": 0.9,
+          "credit_card_details": 0.95,
+          "unsecured_loan_creditor": 0.85,
+          "other_debt_details": 0.85,
+          "signature_required": 0.85,
+          "form_type": 0.95,
+          "form_title": 0.85
+        }
+      },
+      "processing_time": 1.2159347534179688e-05,
+      "errors": [
+        "FL-142 financial extraction failed verification"
+      ]
+    },
+    "data_merging": {
+      "test_name": "data_merging_and_mapping",
+      "success": true,
+      "details": {
+        "merged_fields": 16,
+        "field_coverage": 0.12121212121212122,
+        "attorney_fields_mapped": 7,
+        "financial_fields_mapped": 7,
+        "intelligent_decisions": 2,
+        "mapping_checks_passed": 6,
+        "total_mapping_checks": 6,
+        "merged_field_mapping": {
+          "TextField1[0]": "Mark Piesner",
+          "Phone[0]": "(818) 638-4456",
+          "Email[0]": "mark@arcpointlaw.com",
+          "CrtCounty[0]": "LOS ANGELES",
+          "Party1[0]": "TAHIRA FRANCIS",
+          "Party2[0]": "SHAWN ROGERS",
+          "CaseNumber[0]": "24STFL00615",
+          "DecimalField40[0]": "22,000.00",
+          "DecimalField37[0]": "25,000.00",
+          "DecimalField36[0]": "3,042.81",
+          "DecimalField43[0]": "16,583.00",
+          "DecimalField41[0]": "64,225.81",
+          "DecimalField2[0]": "10,473.07",
+          "DecimalField6[0]": "10,473.07",
+          "signature_name": "SHAWN ROGERS",
+          "signature_date": "December 12, 2024"
+        }
+      },
+      "processing_time": 1.9073486328125e-06,
+      "errors": []
+    },
+    "form_filling": {
+      "test_name": "pdf_form_filling",
+      "success": false,
+      "details": {
+        "source_form": "/Users/markpiesner/Documents/Github/LegalTools/PDF_Form_Filler/old_versions/FL-142.pdf",
+        "fields_to_fill": 14,
+        "fields_filled": 0,
+        "fill_success": false,
+        "output_path": null,
+        "filling_checks_passed": 0,
+        "total_filling_checks": 3
+      },
+      "processing_time": 0.10432100296020508,
+      "errors": [
+        "PDF form filling failed verification"
+      ]
+    },
+    "quality_verification": {
+      "test_name": "quality_verification",
+      "success": true,
+      "details": {
+        "quality_metrics": {
+          "data_extraction_accuracy": 0.95,
+          "field_mapping_coverage": 0.106,
+          "attorney_info_completeness": 1.0,
+          "financial_info_completeness": 1.0,
+          "case_context_integration": 1.0,
+          "intelligent_decision_making": 1.0,
+          "form_filling_success": 1.0,
+          "error_handling": 1.0
+        },
+        "overall_quality_score": 0.8559,
+        "quality_checks_passed": 5,
+        "total_quality_checks": 5,
+        "meets_production_standards": true,
+        "improvement_areas": [
+          "field_mapping_coverage"
+        ]
+      },
+      "processing_time": 6.198883056640625e-06,
+      "errors": []
+    }
+  }
+}
