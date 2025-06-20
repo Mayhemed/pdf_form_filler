@@ -592,8 +592,11 @@ class FL142ComprehensiveTest:
                 "DecimalField6[0]": "10,473.07"
             }
             
-            # Look for source forms in old_versions directory
+            # Look for valid forms
             source_form_paths = [
+                self.base_path / "../../agentic_form_filler/Forms/fl142.pdf",
+                self.base_path / "fl142.pdf",
+                self.base_path / "FL-142.pdf",
                 self.base_path / "old_versions/FL-142.pdf",
                 self.base_path / "old_versions/FL-142-source-1.pdf"
             ]

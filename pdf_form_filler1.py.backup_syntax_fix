@@ -1,0 +1,1551 @@
+#!/usr/bin/env python3
+"""
+AI-Powered PDF Form Filler v3 - FIXED VERSION
+Author: Assistant
+Description: A PyQt6 GUI application for filling any fillable PDF form with AI-powered data extraction
+"""
+
+import sys
+import json
+import subprocess
+import tempfile
+import os
+import re
+import base64
+import logging
+import traceback
+try:
+    import dotenv
+except ImportError:
+    dotenv = None
+from pathlib import Path
+from typing import Dict, List, Optional, Tuple, Union, Any
+from dataclasses import dataclass, asdict
+
+# Set up logging
+logging.basicConfig(
+    filename='pdf_form_filler_debug.log',
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger('PDF_Form_Filler')
+logger.info("Application starting")
+
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget,
+    QPushButton, QFileDialog, QTableWidget, QTableWidgetItem,
+    QLabel, QLineEdit, QTextEdit, QSplitter, QTabWidget,
+    QMessageBox, QProgressBar, QGroupBox, QScrollArea,
+    QGridLayout, QComboBox, QSpinBox, QCheckBox, QListWidget,
+    QListWidgetItem, QPlainTextEdit, QFrame, QSizePolicy, QRadioButton,
+    QInputDialog
+)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QSettings, QTimer
+from PyQt6.QtGui import QFont, QIcon, QPalette, QColor, QPixmap
+
+# Import field mapping widget
+try:
+    from fieldmappingwidget import FieldMappingWidget, FormField
+    FIELD_MAPPING_AVAILABLE = True
+except ImportError:
+    FIELD_MAPPING_AVAILABLE = False
+    print("⚠️ FieldMappingWidget not available - creating placeholder")
+    
+    # Create placeholder classes
+    @dataclass
+    class FormField:
+        name: str
+        field_type: str = "Text"
+        alt_text: str = ""
+        flags: int = 0
+        justification: str = "Left"
+        state_options: List[str] = None
+        
+        def __post_init__(self):
+            if self.state_options is None:
+                self.state_options = []
+    
+    class FieldMappingWidget(QWidget):
+        def __init__(self):
+            super().__init__()
+            self.fields = []
+            self.init_ui()
+        
+        def init_ui(self):
+            layout = QVBoxLayout()
+            layout.addWidget(QLabel("Field Mapping Widget (Placeholder)"))
+            self.setLayout(layout)
+        
+        def set_fields(self, fields):
+            self.fields = fields
+        
+        def get_field_data(self):
+            return {}
+        
+        def set_field_data(self, data):
+            pass
+
+# AI/ML Imports with error handling
+try:
+    import openai
+    OPENAI_AVAILABLE = True
+    print("✅ OpenAI library available")
+except ImportError:
+    OPENAI_AVAILABLE = False
+    print("⚠️ OpenAI library not available")
+
+try:
+    import anthropic
+    ANTHROPIC_AVAILABLE = True
+    print("✅ Anthropic library available")
+except ImportError:
+    ANTHROPIC_AVAILABLE = False
+    print("⚠️ Anthropic library not available")
+
+# Optional imports
+try:
+    from PIL import Image
+    import pytesseract
+    OCR_AVAILABLE = True
+except ImportError:
+    OCR_AVAILABLE = False
+
+try:
+    import requests
+    from bs4 import BeautifulSoup
+    WEB_SCRAPING_AVAILABLE = True
+except ImportError:
+    WEB_SCRAPING_AVAILABLE = False
+
+try:
+    import PyPDF2
+    import pdfplumber
+    PDF_TEXT_AVAILABLE = True
+except ImportError:
+    PDF_TEXT_AVAILABLE = False
+
+@dataclass
+class DataSource:
+    """Represents a data source for AI extraction"""
+    name: str
+    source_type: str  # 'file', 'text', 'url', 'image'
+    content: str
+    extracted_data: Dict[str, Any] = None
+    confidence_scores: Dict[str, float] = None
+
+    def __post_init__(self):
+        if self.extracted_data is None:
+            self.extracted_data = {}
+        if self.confidence_scores is None:
+            self.confidence_scores = {}
+
+class AIDataExtractor(QThread):
+    """Thread for AI-powered data extraction from various sources"""
+    data_extracted = pyqtSignal(dict, dict)  # extracted_data, confidence_scores
+    error_occurred = pyqtSignal(str)
+    progress_updated = pyqtSignal(int, str)  # progress, status_message
+    show_message = pyqtSignal(str, str)  # title, message for safe UI thread display
+
+    def __init__(self, sources: List[DataSource], form_fields: List[FormField],
+                 ai_provider: str = "openai", api_key: str = "", model: str = ""):
+        super().__init__()
+        self.sources = sources
+        self.form_fields = form_fields
+        self.ai_provider = ai_provider
+        self.api_key = api_key
+        self.model = model
+
+    def run(self):
+        try:
+            logger.info("AIDataExtractor: Starting extraction...")
+            print("AIDataExtractor: Starting extraction...")
+            self.progress_updated.emit(10, "Initializing AI extraction...")
+            
+            # Extract text from all sources
+            all_text = ""
+            extracted_data = {}
+            confidence_scores = {}
+            
+            logger.info(f"AIDataExtractor: Processing {len(self.sources)} sources with provider {self.ai_provider}")
+            print(f"AIDataExtractor: Processing {len(self.sources)} sources with provider {self.ai_provider}")
+            
+            for i, source in enumerate(self.sources):
+                progress = 20 + (i * 30 // max(len(self.sources), 1))
+                self.progress_updated.emit(progress, f"Processing {source.name}...")
+                print(f"AIDataExtractor: Processing source {i+1}/{len(self.sources)}: {source.name} (type: {source.source_type})")
+                
+                if source.source_type == "file":
+                    text = self._extract_from_file(source.content)
+                elif source.source_type == "image":
+                    text = self._extract_from_image(source.content)
+                elif source.source_type == "url":
+                    text = self._extract_from_url(source.content)
+                else:
+                    text = source.content
+                
+                print(f"AIDataExtractor: Extracted {len(text)} characters from {source.name}")
+                all_text += f"\n\n=== {source.name} ===\n{text}"
+            
+            self.progress_updated.emit(60, "Running AI analysis...")
+            
+            # Use AI to extract structured data
+            print(f"AIDataExtractor: Using AI provider: {self.ai_provider}")
+            print(f"AIDataExtractor: OpenAI available: {OPENAI_AVAILABLE}")
+            print(f"AIDataExtractor: Anthropic available: {ANTHROPIC_AVAILABLE}")
+            print(f"AIDataExtractor: Has API key: {'Yes' if self.api_key else 'No'}")
+            
+            if self.ai_provider == "openai" and OPENAI_AVAILABLE:
+                print("AIDataExtractor: Using OpenAI for extraction")
+                extracted_data, confidence_scores = self._extract_with_openai(all_text)
+            elif self.ai_provider == "anthropic" and ANTHROPIC_AVAILABLE:
+                print("AIDataExtractor: Using Anthropic for extraction")
+                extracted_data, confidence_scores = self._extract_with_anthropic(all_text)
+            else:
+                print("AIDataExtractor: Using pattern matching for extraction")
+                extracted_data, confidence_scores = self._extract_with_patterns(all_text)
+            
+            print(f"AIDataExtractor: Extraction complete. Found {len(extracted_data)} fields")
+            self.progress_updated.emit(100, "AI extraction complete")
+            self.data_extracted.emit(extracted_data, confidence_scores)
+            
+        except Exception as e:
+            import traceback
+            error_msg = f"AI extraction error: {str(e)}"
+            logger.error(error_msg)
+            logger.error(traceback.format_exc())
+            print(f"AIDataExtractor ERROR: {str(e)}")
+            print(traceback.format_exc())
+            self.error_occurred.emit(error_msg)
+
+    def _extract_from_file(self, file_path: str) -> str:
+        """Extract text from various file types - RESTORED WORKING VERSION"""
+        print(f"DEBUG: Extracting text from file: {file_path}")
+        try:
+            ext = os.path.splitext(file_path)[1].lower()
+            
+            if ext == '.pdf':
+                # For PDFs, we need to extract text and also provide the file path for direct processing
+                print(f"DEBUG: PDF file detected: {os.path.basename(file_path)}")
+                file_name = os.path.basename(file_path)
+                extracted_text = ""
+                
+                # Try to extract text from the PDF first
+                try:
+                    import PyPDF2
+                    with open(file_path, 'rb') as pdf_file:
+                        reader = PyPDF2.PdfReader(pdf_file)
+                        text_content = []
+                        for page_num in range(len(reader.pages)):
+                            page = reader.pages[page_num]
+                            text_content.append(page.extract_text())
+                        extracted_text = "\n\n".join(text_content)
+                        print(f"DEBUG: Extracted {len(extracted_text)} chars of text from PDF")
+                except Exception as e:
+                    print(f"DEBUG: Error extracting text from PDF: {str(e)}")
+                
+                # Add context about what form is being filled
+                form_context = ""
+                if hasattr(self, 'current_pdf_path') and self.current_pdf_path:
+                    form_name = os.path.basename(self.current_pdf_path)
+                    form_context = f"\n\nCONTEXT: This data is being used to fill the form '{form_name}'"
+                
+                # For other providers, return the extracted text or a marker
+                if extracted_text:
+                    return f"{extracted_text}{form_context}"
+                else:
+                    return f"[PDF FILE: {file_name}] This is a PDF document that contains data to fill a form.{form_context}"
+            
+            elif ext in ['.txt', '.md', '.csv']:
+                # Read text files directly
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as file:
+                    text = file.read()
+                    print(f"DEBUG: Read {len(text)} chars from text file")
+                    return text
+            
+            elif ext == '.json':
+                # Parse JSON and format it
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as file:
+                    try:
+                        data = json.load(file)
+                        text = json.dumps(data, indent=2)
+                        print(f"DEBUG: Parsed JSON with {len(text)} chars")
+                        return text
+                    except Exception as e:
+                        # If JSON parsing fails, just return raw content
+                        file.seek(0)
+                        return file.read()
+            
+            else:
+                return f"[Unsupported file type: {ext}]"
+                
+        except Exception as e:
+            print(f"ERROR in _extract_text_from_file: {e}")
+            import traceback
+            print(traceback.format_exc())
+            return f"[Error reading file: {str(e)}]"
+
+    def _extract_from_image(self, image_path: str) -> str:
+        """Extract text from images using OCR"""
+        if not OCR_AVAILABLE:
+            return "OCR not available. Install pytesseract and Pillow."
+        
+        try:
+            image = Image.open(image_path)
+            text = pytesseract.image_to_string(image)
+            return text
+        except Exception as e:
+            return f"OCR error: {str(e)}"
+
+    def _extract_from_url(self, url: str) -> str:
+        """Extract text from web pages"""
+        if not WEB_SCRAPING_AVAILABLE:
+            return "Web scraping not available. Install requests and beautifulsoup4."
+        
+        try:
+            response = requests.get(url, timeout=30)
+            response.raise_for_status()
+            soup = BeautifulSoup(response.content, 'html.parser')
+            
+            # Remove script and style elements
+            for script in soup(["script", "style"]):
+                script.decompose()
+            
+            text = soup.get_text()
+            lines = (line.strip() for line in text.splitlines())
+            chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+            text = ' '.join(chunk for chunk in chunks if chunk)
+            
+            return text
+        except Exception as e:
+            return f"Web scraping error: {str(e)}"
+
+    def _extract_with_openai(self, text: str) -> Tuple[Dict[str, str], Dict[str, float]]:
+        """Extract data using OpenAI GPT"""
+        if not self.api_key:
+            raise ValueError("OpenAI API key required")
+        
+        print("="*50)
+        print("OPENAI EXTRACTION DEBUGGING")
+        print(f"API Key length: {len(self.api_key)} chars")
+        print(f"Model specified: {self.model}")
+        print(f"Text length for analysis: {len(text)} chars")
+        
+        # Create field extraction prompt
+        field_names = [f.name for f in self.form_fields]
+        field_descriptions = [f.alt_text or f.name for f in self.form_fields]
+        
+        print(f"Number of fields to extract: {len(field_names)}")
+        if field_names:
+            print(f"First field: {field_names[0]}")
+        
+        prompt = f"""# Enhanced Legal Document Data Extraction
+
+You are extracting COMPREHENSIVE form data from California family law documents, capturing BOTH field labels AND filled-in values.
+
+## ENHANCED EXTRACTION APPROACH:
+
+### 1. DUAL EXTRACTION STRATEGY:
+- **Field Labels**: Extract form field descriptions and labels (current functionality)
+- **Filled Data**: Extract actual user-entered values (new enhancement)
+- **Smart Combination**: Merge both when available in format "VALUE [Field: LABEL]"
+
+### 2. ATTORNEY INFORMATION (from FL-120 if present):
+- Field Labels: "ATTORNEY OR PARTY WITHOUT ATTORNEY", "TELEPHONE NO:", "ATTORNEY FOR"
+- Filled Data: "Mark Piesner", "(818) 638-4456", "mark@arcpointlaw.com"
+- Enhanced Output: "Mark Piesner, Arc Point Law PC [Field: ATTORNEY OR PARTY WITHOUT ATTORNEY]"
+
+### 3. CASE INFORMATION (from any source):
+- Field Labels: "CASE NUMBER:", "PETITIONER:", "RESPONDENT:", "COUNTY OF"
+- Filled Data: "24STFL00615", "TAHIRA FRANCIS", "SHAWN ROGERS", "LOS ANGELES"
+- Enhanced Output: "24STFL00615 [Field: CASE NUMBER]"
+
+### 4. FINANCIAL DATA (from FL-142 if present):
+- Field Labels: "STUDENT LOANS", "CREDIT CARDS", "TOTAL DEBTS"
+- Filled Data: "$22,000.00", "$3,042.81", "$64,225.81"
+- Enhanced Output: "$22,000.00 [Field: STUDENT LOANS]"
+
+## TARGET FIELDS (extract enhanced data for these exact field names):
+{json.dumps(dict(zip(field_names, field_descriptions)), indent=2)}
+
+## EXTRACTION RULES:
+
+✅ **PRESERVE CURRENT FUNCTIONALITY** - Keep extracting field labels/descriptions
+✅ **ADD FILLED VALUES** - Extract actual user-entered data where available  
+✅ **SMART COMBINATION** - Use "VALUE [Field: LABEL]" format when both exist
+✅ **EXACT FIELD NAMES** - Return exact field name from list as key
+✅ **COMPREHENSIVE COVERAGE** - Extract both template and data elements
+✅ **PRIORITIZE USER DATA** - When available, emphasize actual filled values
+✅ **MAINTAIN CONTEXT** - Include field labels for reference even with data
+
+## DOCUMENT CONTENT TO ANALYZE:
+{text[:6000]}
+
+Extract comprehensive data combining both field context and actual values for maximum utility.
+
+RETURN FORMAT:
+
+{{
+    "extracted_data": {{
+        "EXACT_FIELD_NAME": "FILLED_VALUE [Field: FIELD_LABEL]"
+    }},
+    "confidence_scores": {{
+        "EXACT_FIELD_NAME": 0.95
+    }}
+}}
+
+Focus on quality over quantity - extract what you can clearly identify with both context and data."""
+        
+        try:
+            # Try to use llm_client if available
+            try:
+                import llm_client
+                os.environ["OPENAI_API_KEY"] = self.api_key.strip()
+                print(f"Set OPENAI_API_KEY environment variable")
+                
+                openai_model = self.model.replace("openai-", "") if self.model else "gpt-3.5-turbo"
+                print(f"Calling llm_client.generate_with_openai with model: {openai_model}")
+                
+                response_text = llm_client.generate_with_openai(openai_model, prompt)
+                print(f"OpenAI response received, length: {len(response_text)}")
+                
+            except ImportError:
+                # Fallback to direct OpenAI API
+                print("llm_client not available, using direct OpenAI API")
+                openai.api_key = self.api_key
+                
+                response = openai.ChatCompletion.create(
+                    model=self.model or "gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": prompt}],
+                    temperature=0.1
+                )
+                response_text = response.choices[0].message.content
+            
+            # Parse the JSON response
+            start = response_text.find('{')
+            end = response_text.rfind('}') + 1
+            
+            if start >= 0 and end > start:
+                json_text = response_text[start:end]
+                try:
+                    result = json.loads(json_text)
+                    extracted_data = result.get("extracted_data", {})
+                    confidence_scores = result.get("confidence_scores", {})
+                    print(f"Successfully parsed JSON with {len(extracted_data)} extracted fields")
+                    return extracted_data, confidence_scores
+                except json.JSONDecodeError as e:
+                    print(f"JSON decode error: {e}")
+                    return {}, {}
+            else:
+                print(f"Invalid JSON response from OpenAI")
+                return {}, {}
+            
+        except Exception as e:
+            print(f"OpenAI API error: {str(e)}")
+            self.show_message.emit("OpenAI API Error", f"Error: {str(e)}")
+            return {}, {}
+
+    def _extract_with_anthropic(self, text: str) -> Tuple[Dict[str, str], Dict[str, float]]:
+        """Extract data using Anthropic Claude"""
+        if not self.api_key:
+            raise ValueError("Anthropic API key required")
+
+        print("="*50)
+        print("CLAUDE EXTRACTION DEBUGGING")
+        print(f"API Key length: {len(self.api_key)} chars")
+        print(f"Model specified: {self.model}")
+        print(f"Text length for analysis: {len(text)} chars")
+
+        try:
+            field_names = [f.name for f in self.form_fields]
+            field_descriptions = [f.alt_text or f.name for f in self.form_fields]
+
+            print(f"Number of fields to extract: {len(field_names)}")
+            if field_names:
+                print(f"First field: {field_names[0]}")
+
+            # Use the model specified by the user, or fall back to a default
+            model = self.model if self.model else "claude-3-sonnet-20240229"
+            print(f"Using Claude model: {model}")
+
+            # Generic prompt for any form type
+            # CROSS-DOCUMENT INTELLIGENT FIELD MAPPING PROMPT
+        prompt = f"""You are an expert legal document analyst performing CROSS-DOCUMENT INTELLIGENT FIELD MAPPING.
+
+TASK: For each form field in the TARGET FORM, search ALL source documents to find data that could fill that field.
+
+CROSS-DOCUMENT MAPPING STRATEGY:
+
+🎯 FOR EACH FORM FIELD:
+1. **Understand what the field needs** (attorney name, case number, debt amount, etc.)
+2. **Search ALL source documents** for data matching that field type
+3. **Extract the best match** regardless of which document contains it
+4. **Combine field label + found data** in format: "DATA [Field: LABEL]"
+
+📋 INTELLIGENT FIELD TYPE MAPPING:
+
+**ATTORNEY FIELDS** (TextField1, Phone, Email):
+- Search for: Attorney names, law firm names, phone numbers, email addresses
+- Look in: FL-120 attorney sections, signature blocks, contact info
+- Example: "Mark Piesner, Arc Point Law PC [Field: ATTORNEY NAME]"
+
+**CASE FIELDS** (CaseNumber, Party1, Party2, County):
+- Search for: Case numbers (24STFL00615), party names, court counties
+- Look in: Headers, captions, any document with case info
+- Example: "24STFL00615 [Field: CASE NUMBER]"
+
+**FINANCIAL FIELDS** (DecimalField40, DecimalField37, etc.):
+- Search for: Dollar amounts, debt values, asset amounts
+- Look in: FL-142 filled fields, financial statements, any money amounts
+- Example: "$22,000.00 [Field: STUDENT LOANS]"
+
+**ASSET FIELDS** (household, checking, savings, vehicles):
+- Search for: Property descriptions, account balances, asset values
+- Look in: Asset declarations, bank statements, property lists
+- Example: "$5,000.00 [Field: CHECKING ACCOUNTS]"
+
+**DEBT FIELDS** (student loans, credit cards, unsecured loans):
+- Search for: Debt amounts, creditor names, loan balances
+- Look in: Debt schedules, credit reports, financial disclosures
+- Example: "$25,000.00 [Field: UNSECURED LOANS]"
+
+📊 SOURCE DOCUMENTS AVAILABLE:
+{text[:1000]}... [TRUNCATED - FULL CONTENT AVAILABLE FOR ANALYSIS]
+
+🎯 TARGET FORM FIELDS TO FILL:
+{json.dumps(field_names, indent=2)}
+
+💡 CROSS-DOCUMENT EXTRACTION EXAMPLES:
+
+Target Field: "FL-142[0].Page4[0].Table4[0].Row2[0].DecimalField40[0]" (Student Loans)
+→ Search Strategy: Look for "student loan" amounts in ALL documents
+→ Found in FL-142: "$22,000.00"
+→ Output: "$22,000.00 [Field: STUDENT LOANS]"
+
+Target Field: "FL-142[0].Page1[0].P1Caption[0].AttyPartyInfo[0].TextField1[0]" (Attorney)
+→ Search Strategy: Look for attorney info in ALL documents  
+→ Found in FL-120: "Mark Piesner, Arc Point Law PC"
+→ Output: "Mark Piesner, Arc Point Law PC [Field: ATTORNEY NAME]"
+
+Target Field: "FL-142[0].Page4[0].Table4[0].Row5[0].DecimalField37[0]" (Unsecured Loans)
+→ Search Strategy: Look for unsecured loan amounts in ALL documents
+→ Found in FL-142: "$25,000.00"
+→ Output: "$25,000.00 [Field: UNSECURED LOANS]"
+
+🔍 COMPREHENSIVE SEARCH INSTRUCTIONS:
+
+1. **ANALYZE EVERY FIELD**: For each of the {len(field_names)} target fields, determine what type of data it needs
+
+2. **SEARCH ALL DOCUMENTS**: Don't just use FL-120 data - actively search FL-142 and other sources for:
+   - Financial amounts (student loans, credit cards, assets, debts)
+   - Account information (checking, savings, investments)
+   - Property details (real estate, vehicles, personal property)
+   - Debt details (creditor names, amounts, dates)
+
+3. **INTELLIGENT MATCHING**: Match data semantically, not just by exact labels:
+   - "Student loan: $22,000" → DecimalField40[0] (Student Loans field)
+   - "Credit card debt: $3,042.81" → Credit Cards field
+   - "Checking account: $1,500" → Checking Accounts field
+
+4. **COMPREHENSIVE COVERAGE**: Extract data for AS MANY fields as possible by searching ALL sources
+
+5. **PRIORITIZE FILLED DATA**: When you find actual amounts/values, use those over empty template text
+
+CRITICAL SUCCESS FACTORS:
+✅ **SEARCH ALL DOCUMENTS** - Don't just use FL-120, actively mine FL-142 for financial data
+✅ **FIELD-TYPE MATCHING** - Understand what each field needs and search for that data type
+✅ **CROSS-DOCUMENT INTELLIGENCE** - Use attorney info from FL-120 for attorney fields, financial data from FL-142 for financial fields
+✅ **COMPREHENSIVE EXTRACTION** - Fill as many fields as possible from available data
+✅ **SMART COMBINATION** - Format as "ACTUAL_VALUE [Field: FIELD_LABEL]"
+
+RETURN FORMAT:
+{{
+    "extracted_data": {{
+        "FL-142[0].Page1[0].P1Caption[0].AttyPartyInfo[0].TextField1[0]": "Mark Piesner, Arc Point Law PC [Field: ATTORNEY NAME]",
+        "FL-142[0].Page4[0].Table4[0].Row2[0].DecimalField40[0]": "$22,000.00 [Field: STUDENT LOANS]",
+        "FL-142[0].Page4[0].Table4[0].Row5[0].DecimalField37[0]": "$25,000.00 [Field: UNSECURED LOANS]",
+        "FL-142[0].Page4[0].Table4[0].Row6[0].DecimalField36[0]": "$3,042.81 [Field: CREDIT CARDS]"
+    }},
+    "confidence_scores": {{
+        "FL-142[0].Page1[0].P1Caption[0].AttyPartyInfo[0].TextField1[0]": 0.95,
+        "FL-142[0].Page4[0].Table4[0].Row2[0].DecimalField40[0]": 0.95,
+        "FL-142[0].Page4[0].Table4[0].Row5[0].DecimalField37[0]": 0.95,
+        "FL-142[0].Page4[0].Table4[0].Row6[0].DecimalField36[0]": 0.95
+    }}
+}}
+
+EXTRACT COMPREHENSIVE DATA by intelligently mapping information from ALL source documents to ALL target form fields."""
+
+            try:
+                # Try to use llm_client if available
+                import llm_client
+                os.environ["ANTHROPIC_API_KEY"] = self.api_key.strip()
+                print(f"Set ANTHROPIC_API_KEY environment variable")
+                
+                response_text = llm_client.generate_with_claude(model, prompt)
+                print(f"Claude response received, length: {len(response_text)}")
+                
+            except ImportError:
+                # Fallback to direct Anthropic API
+                print("llm_client not available, using direct Anthropic API")
+                client = anthropic.Anthropic(api_key=self.api_key)
+                
+                response = client.messages.create(
+                    model=model,
+                    max_tokens=1000,
+                    messages=[{"role": "user", "content": prompt}]
+                )
+                response_text = response.content[0].text
+
+            # Parse response
+            start = response_text.find('{')
+            end = response_text.rfind('}') + 1
+
+            if start >= 0 and end > start:
+                json_text = response_text[start:end]
+                try:
+                    result = json.loads(json_text)
+                    extracted_data = result.get("extracted_data", {})
+                    confidence_scores = result.get("confidence_scores", {})
+
+                    # If missing confidence scores, generate defaults
+                    if not confidence_scores and extracted_data:
+                        confidence_scores = {k: 0.85 for k in extracted_data.keys()}
+
+                    print(f"Successfully parsed JSON with {len(extracted_data)} extracted fields")
+                    return extracted_data, confidence_scores
+
+                except json.JSONDecodeError as e:
+                    print(f"JSON decode error: {e}")
+                    return {}, {}
+            else:
+                print(f"Invalid JSON response from Claude")
+                return {}, {}
+
+        except Exception as e:
+            print(f"Claude API error: {str(e)}")
+            self.show_message.emit("Claude API Error", f"Error: {str(e)}")
+            return {}, {}
+
+    def _extract_with_patterns(self, text: str) -> Tuple[Dict[str, str], Dict[str, float]]:
+        """Pattern-based extraction fallback"""
+        print("🔍 Using pattern matching extraction")
+        
+        extracted_data = {}
+        confidence_scores = {}
+        
+        # Enhanced patterns for key legal form data
+        patterns = {
+            # People and roles
+            'attorney_name': r'attorney.*?([A-Z][a-z]+ [A-Z][a-z]+)',
+            'petitioner_name': r'petitioner.*?([A-Z][a-z]+ [A-Z][a-z]+)',
+            'respondent_name': r'respondent.*?([A-Z][a-z]+ [A-Z][a-z]+)',
+            
+            # Case information
+            'case_number': r'case.*?number.*?([A-Z0-9]+)',
+            'court_county': r'county of\s+([A-Z\s]+)',
+            
+            # Financial amounts
+            'student_loan': r'student.*?loan.*?\$?\s*([0-9,]+\.?[0-9]*)',
+            'credit_card': r'credit.*?card.*?\$?\s*([0-9,]+\.?[0-9]*)',
+            'total_debt': r'total.*?debt.*?\$?\s*([0-9,]+\.?[0-9]*)',
+            
+            # Contact info
+            'phone': r'\((\d{3})\)\s*(\d{3})-(\d{4})',
+            'address': r'(\d+\s+[A-Za-z\s]+(Street|St|Avenue|Ave|Road|Rd|Drive|Dr))',
+        }
+        
+        # Extract using patterns
+        for field in self.form_fields:
+            field_name = field.name
+            field_text = (field.name + " " + (field.alt_text or "")).lower()
+            
+            best_value = None
+            best_confidence = 0
+            
+            # Try to match field intent with patterns
+            for pattern_type, pattern in patterns.items():
+                if any(word in field_text for word in pattern_type.split('_')):
+                    matches = re.finditer(pattern, text, re.IGNORECASE)
+                    for match in matches:
+                        if pattern_type == 'phone' and len(match.groups()) >= 3:
+                            value = f"({match.group(1)}) {match.group(2)}-{match.group(3)}"
+                        else:
+                            value = match.group(1) if match.groups() else match.group(0)
+                        
+                        confidence = 0.8
+                        if confidence > best_confidence:
+                            best_confidence = confidence
+                            best_value = value.strip()
+            
+            if best_value and best_confidence > 0.5:
+                extracted_data[field_name] = best_value
+                confidence_scores[field_name] = best_confidence
+        
+        print(f"✅ Pattern extraction found {len(extracted_data)} fields")
+        return extracted_data, confidence_scores
+
+class PDFFieldExtractor(QThread):
+    """Thread for extracting PDF fields using pdftk"""
+    fields_extracted = pyqtSignal(list)
+    error_occurred = pyqtSignal(str)
+    progress_updated = pyqtSignal(int)
+
+    def __init__(self, pdf_path: str):
+        super().__init__()
+        self.pdf_path = pdf_path
+
+    def run(self):
+        try:
+            self.progress_updated.emit(20)
+            
+            # Check if pdftk is available
+            try:
+                subprocess.run(['pdftk', '--version'], 
+                             capture_output=True, check=True)
+            except (subprocess.CalledProcessError, FileNotFoundError):
+                self.error_occurred.emit(
+                    "pdftk not found. Please install pdftk:\n"
+                    "macOS: brew install pdftk-java\n"
+                    "Ubuntu: sudo apt install pdftk\n"
+                    "Windows: Download from pdftk.org"
+                )
+                return
+
+            self.progress_updated.emit(50)
+
+            # Extract fields using pdftk
+            result = subprocess.run([
+                'pdftk', self.pdf_path, 'dump_data_fields'
+            ], capture_output=True, text=True, check=True)
+
+            self.progress_updated.emit(80)
+
+            # Parse the output
+            fields = self._parse_pdftk_output(result.stdout)
+            
+            self.progress_updated.emit(100)
+            self.fields_extracted.emit(fields)
+
+        except subprocess.CalledProcessError as e:
+            self.error_occurred.emit(f"Error extracting fields: {e}")
+        except Exception as e:
+            self.error_occurred.emit(f"Unexpected error: {str(e)}")
+
+    def _parse_pdftk_output(self, output: str) -> List[FormField]:
+        """Parse pdftk dump_data_fields output"""
+        fields = []
+        current_field = {}
+        
+        for line in output.strip().split('\n'):
+            if line.startswith('---'):
+                if current_field:
+                    field = FormField(
+                        name=current_field.get('FieldName', ''),
+                        field_type=current_field.get('FieldType', 'Text'),
+                        alt_text=current_field.get('FieldNameAlt', ''),
+                        flags=int(current_field.get('FieldFlags', 0)),
+                        justification=current_field.get('FieldJustification', 'Left'),
+                        state_options=current_field.get('FieldStateOption', [])
+                    )
+                    fields.append(field)
+                current_field = {}
+            elif ':' in line:
+                key, value = line.split(':', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                if key == 'FieldStateOption':
+                    if key not in current_field:
+                        current_field[key] = []
+                    current_field[key].append(value)
+                else:
+                    current_field[key] = value
+
+        # Add the last field
+        if current_field:
+            field = FormField(
+                name=current_field.get('FieldName', ''),
+                field_type=current_field.get('FieldType', 'Text'),
+                alt_text=current_field.get('FieldNameAlt', ''),
+                flags=int(current_field.get('FieldFlags', 0)),
+                justification=current_field.get('FieldJustification', 'Left'),
+                state_options=current_field.get('FieldStateOption', [])
+            )
+            fields.append(field)
+
+        return fields
+
+class PDFFormFiller(QThread):
+    """Thread for filling PDF forms"""
+    form_filled = pyqtSignal(str)
+    error_occurred = pyqtSignal(str)
+    progress_updated = pyqtSignal(int)
+
+    def __init__(self, pdf_path: str, field_data: Dict[str, str], output_path: str):
+        super().__init__()
+        self.pdf_path = pdf_path
+        self.field_data = field_data
+        self.output_path = output_path
+
+    def run(self):
+        try:
+            self.progress_updated.emit(20)
+
+            # Create FDF file
+            fdf_content = self._create_fdf(self.field_data)
+            
+            with tempfile.NamedTemporaryFile(mode='w', suffix='.fdf', delete=False) as fdf_file:
+                fdf_file.write(fdf_content)
+                fdf_path = fdf_file.name
+
+            self.progress_updated.emit(50)
+
+            try:
+                # Fill the form using pdftk
+                subprocess.run([
+                    'pdftk', self.pdf_path, 'fill_form', fdf_path,
+                    'output', self.output_path
+                ], check=True)
+
+                self.progress_updated.emit(100)
+                self.form_filled.emit(self.output_path)
+
+            finally:
+                # Clean up temporary FDF file
+                os.unlink(fdf_path)
+
+        except Exception as e:
+            self.error_occurred.emit(f"Error filling form: {str(e)}")
+
+    def _create_fdf(self, field_data: Dict[str, str]) -> str:
+        """Create FDF content for form filling"""
+        fdf_header = """%FDF-1.2
+1 0 obj
+<<
+/FDF
+<<
+/Fields ["""
+
+        fdf_fields = []
+        for field_name, field_value in field_data.items():
+            if field_value:  # Only include non-empty fields
+                escaped_value = field_value.replace('\\', '\\\\').replace('(', '\\(').replace(')', '\\)')
+                fdf_fields.append(f"""<<
+/T ({field_name})
+/V ({escaped_value})
+>>""")
+
+        fdf_footer = """]
+>>
+>>
+endobj
+trailer
+
+<<
+/Root 1 0 R
+>>
+%%EOF"""
+
+        return fdf_header + '\n' + '\n'.join(fdf_fields) + '\n' + fdf_footer
+
+class MainWindow(QMainWindow):
+    """Main application window"""
+    
+    def __init__(self):
+        super().__init__()
+        self.current_pdf_path = ""
+        self.settings = QSettings("PDFFormFiller", "FormMappings")
+        self.form_fields = []
+        self.ai_data_sources = []
+        self.init_ui()
+        self.apply_theme()
+
+    def init_ui(self):
+        self.setWindowTitle("PDF Form Filler - Universal Fillable PDF Tool")
+        self.setGeometry(100, 100, 1200, 800)
+
+        # Central widget with tabs
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        layout = QVBoxLayout()
+        central_widget.setLayout(layout)
+
+        # File selection
+        file_layout = QHBoxLayout()
+        file_layout.addWidget(QLabel("PDF File:"))
+        self.file_path_edit = QLineEdit()
+        self.file_path_edit.setReadOnly(True)
+        file_layout.addWidget(self.file_path_edit)
+        
+        self.browse_btn = QPushButton("Browse PDF")
+        self.browse_btn.clicked.connect(self.browse_pdf)
+        file_layout.addWidget(self.browse_btn)
+        
+        layout.addLayout(file_layout)
+
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        layout.addWidget(self.progress_bar)
+
+        # Tab widget
+        self.tab_widget = QTabWidget()
+        layout.addWidget(self.tab_widget)
+
+        # Field mapping tab
+        self.field_mapping_widget = FieldMappingWidget()
+        self.tab_widget.addTab(self.field_mapping_widget, "Field Mapping")
+
+        # AI extraction tab
+        self.create_ai_extraction_tab()
+
+        # Data management tab
+        self.create_data_management_tab()
+
+        # Action buttons
+        button_layout = QHBoxLayout()
+        
+        self.load_data_btn = QPushButton("Load Mapping")
+        self.load_data_btn.clicked.connect(self.load_mapping)
+        button_layout.addWidget(self.load_data_btn)
+        
+        self.save_data_btn = QPushButton("Save Mapping")
+        self.save_data_btn.clicked.connect(self.save_mapping)
+        button_layout.addWidget(self.save_data_btn)
+        
+        button_layout.addStretch()
+        
+        self.fill_form_btn = QPushButton("Fill PDF Form")
+        self.fill_form_btn.clicked.connect(self.fill_form)
+        self.fill_form_btn.setEnabled(False)
+        button_layout.addWidget(self.fill_form_btn)
+        
+        layout.addLayout(button_layout)
+
+        # Status
+        self.status_label = QLabel("Ready - Select a PDF file to begin")
+        layout.addWidget(self.status_label)
+
+    def create_ai_extraction_tab(self):
+        """Create AI extraction tab with improved error handling"""
+        ai_tab = QWidget()
+        ai_layout = QVBoxLayout(ai_tab)
+        
+        # AI Provider Selection
+        provider_group = QGroupBox("AI Provider")
+        provider_layout = QVBoxLayout()
+        
+        self.ai_provider_radio_pattern = QRadioButton("Pattern Matching (Free, No API Key Required)")
+        self.ai_provider_radio_pattern.setChecked(True)
+        provider_layout.addWidget(self.ai_provider_radio_pattern)
+        
+        self.ai_provider_radio_openai = QRadioButton("OpenAI (API Key Required)")
+        provider_layout.addWidget(self.ai_provider_radio_openai)
+        
+        self.ai_provider_radio_anthropic = QRadioButton("Anthropic Claude (API Key Required)")
+        provider_layout.addWidget(self.ai_provider_radio_anthropic)
+        
+        # Model selection
+        model_layout = QHBoxLayout()
+        model_layout.addWidget(QLabel("Model:"))
+        self.ai_model_combo = QComboBox()
+        self.ai_model_combo.addItems(["Default Model"])
+        model_layout.addWidget(self.ai_model_combo)
+        provider_layout.addLayout(model_layout)
+        
+        # API Key field
+        key_layout = QHBoxLayout()
+        key_layout.addWidget(QLabel("API Key:"))
+        self.api_key_edit = QLineEdit()
+        self.api_key_edit.setEchoMode(QLineEdit.EchoMode.Password)
+        self.api_key_edit.setPlaceholderText("Enter API key (only needed for OpenAI/Claude)")
+        key_layout.addWidget(self.api_key_edit)
+        provider_layout.addLayout(key_layout)
+        
+        # Connect radio buttons to update model list
+        self.ai_provider_radio_pattern.toggled.connect(self._update_ai_model_list)
+        self.ai_provider_radio_openai.toggled.connect(self._update_ai_model_list)
+        self.ai_provider_radio_anthropic.toggled.connect(self._update_ai_model_list)
+        
+        provider_group.setLayout(provider_layout)
+        ai_layout.addWidget(provider_group)
+        
+        # Data Sources
+        sources_group = QGroupBox("Data Sources")
+        sources_layout = QVBoxLayout()
+        
+        # Source management buttons
+        source_buttons = QHBoxLayout()
+        
+        self.add_file_btn = QPushButton("Add File")
+        self.add_file_btn.clicked.connect(self.add_ai_file_source)
+        source_buttons.addWidget(self.add_file_btn)
+        
+        self.add_text_btn = QPushButton("Add Text")
+        self.add_text_btn.clicked.connect(self.add_ai_text_source)
+        source_buttons.addWidget(self.add_text_btn)
+        
+        self.add_url_btn = QPushButton("Add URL")
+        self.add_url_btn.clicked.connect(self.add_ai_url_source)
+        source_buttons.addWidget(self.add_url_btn)
+        
+        self.add_image_btn = QPushButton("Add Image (OCR)")
+        self.add_image_btn.clicked.connect(self.add_ai_image_source)
+        source_buttons.addWidget(self.add_image_btn)
+        
+        source_buttons.addStretch()
+        
+        self.clear_sources_btn = QPushButton("Clear All")
+        self.clear_sources_btn.clicked.connect(self.clear_ai_sources)
+        source_buttons.addWidget(self.clear_sources_btn)
+        
+        sources_layout.addLayout(source_buttons)
+        
+        # Sources list
+        self.sources_list = QListWidget()
+        self.sources_list.setMaximumHeight(150)
+        sources_layout.addWidget(self.sources_list)
+        
+        sources_group.setLayout(sources_layout)
+        ai_layout.addWidget(sources_group)
+        
+        # Text Input
+        text_group = QGroupBox("Direct Text Input")
+        text_layout = QVBoxLayout()
+        
+        self.ai_text_input = QPlainTextEdit()
+        self.ai_text_input.setPlaceholderText(
+            "Paste any text here for AI analysis:\n"
+            "- Court documents\n"
+            "- Case information\n"
+            "- Client details\n"
+            "- Financial data\n"
+            "- Any relevant information"
+        )
+        self.ai_text_input.setMaximumHeight(150)
+        text_layout.addWidget(self.ai_text_input)
+        
+        text_group.setLayout(text_layout)
+        ai_layout.addWidget(text_group)
+        
+        # Extract Button
+        extract_layout = QHBoxLayout()
+        
+        self.ai_extract_btn = QPushButton("Extract Data")
+        self.ai_extract_btn.clicked.connect(self.extract_with_ai)
+        extract_layout.addWidget(self.ai_extract_btn)
+        
+        self.ai_progress = QProgressBar()
+        self.ai_progress.setVisible(False)
+        extract_layout.addWidget(self.ai_progress)
+        
+        ai_layout.addLayout(extract_layout)
+        
+        # Results
+        results_group = QGroupBox("Extraction Results")
+        results_layout = QVBoxLayout()
+        
+        self.ai_results = QTextEdit()
+        self.ai_results.setReadOnly(True)
+        self.ai_results.setPlaceholderText("Results will appear here...")
+        results_layout.addWidget(self.ai_results)
+        
+        results_group.setLayout(results_layout)
+        ai_layout.addWidget(results_group)
+        
+        # Add to tabs
+        self.tab_widget.addTab(ai_tab, "AI Data Extraction")
+
+    def create_data_management_tab(self):
+        """Create the data management tab"""
+        data_widget = QWidget()
+        layout = QVBoxLayout()
+        
+        # Quick data entry
+        group = QGroupBox("Quick Data Entry (JSON)")
+        group_layout = QVBoxLayout()
+        
+        self.data_text_edit = QTextEdit()
+        self.data_text_edit.setPlaceholderText(
+            'Enter field data as JSON:\n'
+            '{\n'
+            '  "field_name_1": "value1",\n'
+            '  "field_name_2": "value2"\n'
+            '}'
+        )
+        group_layout.addWidget(self.data_text_edit)
+        
+        json_buttons = QHBoxLayout()
+        
+        apply_json_btn = QPushButton("Apply JSON Data")
+        apply_json_btn.clicked.connect(self.apply_json_data)
+        json_buttons.addWidget(apply_json_btn)
+        
+        export_json_btn = QPushButton("Export to JSON")
+        export_json_btn.clicked.connect(self.export_to_json)
+        json_buttons.addWidget(export_json_btn)
+        
+        group_layout.addLayout(json_buttons)
+        group.setLayout(group_layout)
+        layout.addWidget(group)
+        
+        data_widget.setLayout(layout)
+        self.tab_widget.addTab(data_widget, "Data Management")
+
+    def apply_theme(self):
+        """Apply a modern theme to the application"""
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f5f5f5;
+            }
+            QPushButton {
+                background-color: #2196F3;
+                color: white;
+                border: none;
+                padding: 8px 16px;
+                border-radius: 4px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #1976D2;
+            }
+            QPushButton:disabled {
+                background-color: #cccccc;
+            }
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #cccccc;
+                border-radius: 5px;
+                margin: 10px 0px;
+                padding-top: 10px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 10px;
+                padding: 0 5px 0 5px;
+            }
+            QLineEdit {
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 6px;
+            }
+            QLineEdit:focus {
+                border-color: #2196F3;
+            }
+            QTabWidget::pane {
+                border: 1px solid #cccccc;
+            }
+            QTabBar::tab {
+                background-color: #e0e0e0;
+                padding: 8px 16px;
+                margin-right: 2px;
+            }
+            QTabBar::tab:selected {
+                background-color: #2196F3;
+                color: white;
+            }
+        """)
+
+    def browse_pdf(self):
+        """Browse for PDF file"""
+        print("DEBUG: Browse PDF button clicked")
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select PDF File", "", "PDF Files (*.pdf)"
+        )
+        
+        if file_path:
+            print(f"DEBUG: Selected PDF: {file_path}")
+            self.current_pdf_path = file_path
+            self.file_path_edit.setText(file_path)
+            self.extract_fields()
+        else:
+            print("DEBUG: No PDF file selected")
+
+    def extract_fields(self):
+        """Extract fields from the selected PDF"""
+        if not self.current_pdf_path:
+            return
+
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.status_label.setText("Extracting form fields...")
+        
+        self.extractor_thread = PDFFieldExtractor(self.current_pdf_path)
+        self.extractor_thread.fields_extracted.connect(self.on_fields_extracted)
+        self.extractor_thread.error_occurred.connect(self.on_extraction_error)
+        self.extractor_thread.progress_updated.connect(self.progress_bar.setValue)
+        self.extractor_thread.start()
+
+    def on_fields_extracted(self, fields: List[FormField]):
+        """Handle successful field extraction"""
+        self.progress_bar.setVisible(False)
+        self.field_mapping_widget.set_fields(fields)
+        self.form_fields = fields
+        self.fill_form_btn.setEnabled(True)
+        self.status_label.setText(f"Ready - Found {len(fields)} form fields")
+
+    def on_extraction_error(self, error_message: str):
+        """Handle field extraction error"""
+        self.progress_bar.setVisible(False)
+        self.status_label.setText("Error extracting fields")
+        QMessageBox.critical(self, "Error", error_message)
+
+    # AI Data Source Management Methods
+    def add_ai_file_source(self):
+        """Add a file as data source for AI analysis"""
+        try:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Select Data File", "",
+                "All Supported (*.pdf *.txt *.json *.csv *.md);;PDF Files (*.pdf);;Text Files (*.txt);;JSON Files (*.json);;CSV Files (*.csv)"
+            )
+            
+            if file_path:
+                file_name = os.path.basename(file_path)
+                self.sources_list.addItem(f"File: {file_name}")
+                self.ai_data_sources.append(('file', str(file_path)))
+                print(f"Added file source: {file_name}")
+                
+        except Exception as e:
+            print(f"Error adding file source: {e}")
+            QMessageBox.warning(self, "Error", f"Error adding file: {str(e)}")
+    
+    def add_ai_text_source(self):
+        """Add text input as data source for AI analysis"""
+        try:
+            text = self.ai_text_input.toPlainText().strip()
+            if text:
+                self.sources_list.addItem(f"Text: {len(text)} chars")
+                
+                # Truncate very long text to avoid memory issues
+                max_len = 5000
+                if len(text) > max_len:
+                    truncated = text[:max_len] + "... (truncated)"
+                    self.ai_data_sources.append(('text', truncated))
+                else:
+                    self.ai_data_sources.append(('text', text))
+                    
+                self.ai_text_input.clear()
+                print("Added text source")
+        except Exception as e:
+            print(f"Error adding text source: {e}")
+    
+    def add_ai_url_source(self):
+        """Add URL as data source for AI analysis"""
+        try:
+            url, ok = QInputDialog.getText(
+                self, "Add URL Source",
+                "Enter URL to scrape for data:",
+                QLineEdit.EchoMode.Normal,
+                "https://"
+            )
+            
+            if ok and url:
+                display_url = url[:50] + "..." if len(url) > 50 else url
+                self.sources_list.addItem(f"URL: {display_url}")
+                self.ai_data_sources.append(('url', url))
+                print(f"Added URL source: {url}")
+        except Exception as e:
+            print(f"Error adding URL source: {e}")
+    
+    def add_ai_image_source(self):
+        """Add image for OCR as data source for AI analysis"""
+        try:
+            if not OCR_AVAILABLE:
+                QMessageBox.warning(
+                    self, "OCR Not Available",
+                    "OCR functionality requires pytesseract and Pillow.\n"
+                    "Install with: pip install pytesseract Pillow"
+                )
+                return
+            
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Select Image File", "",
+                "Image Files (*.png *.jpg *.jpeg *.tiff *.bmp *.gif)"
+            )
+            
+            if file_path:
+                file_name = os.path.basename(file_path)
+                self.sources_list.addItem(f"Image: {file_name}")
+                self.ai_data_sources.append(('image', str(file_path)))
+                print(f"Added image source: {file_name}")
+        except Exception as e:
+            print(f"Error adding image source: {e}")
+
+    def clear_ai_sources(self):
+        """Clear all AI data sources"""
+        try:
+            self.sources_list.clear()
+            self.ai_data_sources = []
+            print("AI sources cleared")
+        except Exception as e:
+            print(f"Error clearing sources: {e}")
+
+    def _update_ai_model_list(self):
+        """Update the model list based on selected provider"""
+        try:
+            self.ai_model_combo.clear()
+            
+            if self.ai_provider_radio_openai.isChecked():
+                openai_models = [
+                    "gpt-4o",
+                    "gpt-4-turbo",
+                    "gpt-4",
+                    "gpt-3.5-turbo"
+                ]
+                self.ai_model_combo.addItems(openai_models)
+                
+            elif self.ai_provider_radio_anthropic.isChecked():
+                claude_models = [
+                    "claude-3-5-sonnet-20240620",
+                    "claude-3-opus-20240229",
+                    "claude-3-sonnet-20240229",
+                    "claude-3-haiku-20240307"
+                ]
+                self.ai_model_combo.addItems(claude_models)
+                
+            else:
+                # Pattern matching has no model selection
+                self.ai_model_combo.addItem("Pattern Matching (No Model)")
+                
+        except Exception as e:
+            print(f"Error updating model list: {e}")
+
+    def extract_with_ai(self):
+        """Extract data using AI with improved error handling"""
+        try:
+            # Check if form fields are available
+            if not self.form_fields:
+                QMessageBox.warning(self, "No Form Fields",
+                                   "Please load a PDF form first to define extraction fields.")
+                return
+                
+            # Check if we have any data sources
+            has_text = bool(self.ai_text_input.toPlainText().strip())
+            has_sources = bool(self.ai_data_sources)
+            
+            if not has_text and not has_sources:
+                QMessageBox.warning(self, "No Input",
+                                   "Please enter some text or add data sources to analyze.")
+                return
+                
+            # Determine AI provider
+            if self.ai_provider_radio_openai.isChecked():
+                provider = "openai"
+                if not self.api_key_edit.text().strip():
+                    QMessageBox.warning(self, "API Key Required",
+                                      "Please enter an OpenAI API key.")
+                    return
+            elif self.ai_provider_radio_anthropic.isChecked():
+                provider = "anthropic"
+                if not self.api_key_edit.text().strip():
+                    QMessageBox.warning(self, "API Key Required",
+                                      "Please enter an Anthropic API key.")
+                    return
+            else:
+                provider = "pattern"
+                
+            # Show progress
+            self.ai_progress.setVisible(True)
+            self.ai_progress.setValue(10)
+            self.ai_extract_btn.setEnabled(False)
+            self.status_label.setText("Extracting data...")
+            
+            # Create data sources
+            sources = []
+            
+            # Add text input as source
+            if has_text:
+                text_content = self.ai_text_input.toPlainText().strip()
+                sources.append(DataSource("Direct Text Input", "text", text_content))
+            
+            # Add file/URL/image sources
+            for source_type, source_content in self.ai_data_sources:
+                source_name = f"{source_type.title()}: {os.path.basename(source_content) if source_type == 'file' else source_content[:50]}"
+                sources.append(DataSource(source_name, source_type, source_content))
+            
+            # Get selected model
+            selected_model = self.ai_model_combo.currentText()
+            api_key = self.api_key_edit.text().strip()
+            
+            # Start extraction thread
+            self.extractor_thread = AIDataExtractor(
+                sources, self.form_fields, provider, api_key, selected_model
+            )
+            self.extractor_thread.data_extracted.connect(self.on_ai_data_extracted)
+            self.extractor_thread.error_occurred.connect(self.on_ai_extraction_error)
+            self.extractor_thread.progress_updated.connect(self.on_ai_progress_updated)
+            self.extractor_thread.show_message.connect(self.show_ai_message)
+            self.extractor_thread.start()
+            
+        except Exception as e:
+            print(f"Error in extract_with_ai: {e}")
+            QMessageBox.critical(self, "Error", f"Error during AI extraction: {str(e)}")
+            self.ai_progress.setVisible(False)
+            self.ai_extract_btn.setEnabled(True)
+
+    def on_ai_data_extracted(self, extracted_data: dict, confidence_scores: dict):
+        """Handle successful AI data extraction"""
+        try:
+            # Apply to form fields
+            self.field_mapping_widget.set_field_data(extracted_data)
+            
+            # Show results
+            result_text = "Extraction Results:\n\n"
+            for field_name, value in extracted_data.items():
+                conf = confidence_scores.get(field_name, 0.0)
+                result_text += f"• {field_name}: {value} (confidence: {conf:.1%})\n"
+                
+            self.ai_results.setPlainText(result_text)
+            self.status_label.setText(f"Extracted {len(extracted_data)} field values")
+            
+        except Exception as e:
+            print(f"Error processing AI results: {e}")
+        finally:
+            self.ai_progress.setVisible(False)
+            self.ai_extract_btn.setEnabled(True)
+
+    def on_ai_extraction_error(self, error_message: str):
+        """Handle AI extraction error"""
+        self.ai_results.setPlainText(f"Error during extraction: {error_message}")
+        self.ai_progress.setVisible(False)
+        self.ai_extract_btn.setEnabled(True)
+        self.status_label.setText("AI extraction failed")
+
+    def on_ai_progress_updated(self, progress: int, message: str):
+        """Handle AI extraction progress updates"""
+        self.ai_progress.setValue(progress)
+        self.status_label.setText(message)
+
+    def show_ai_message(self, title: str, message: str):
+        """Show AI message in a thread-safe way"""
+        QMessageBox.information(self, title, message)
+
+    # Data Management Methods
+    def apply_json_data(self):
+        """Apply JSON data to form fields"""
+        try:
+            json_text = self.data_text_edit.toPlainText()
+            if not json_text.strip():
+                return
+                
+            data = json.loads(json_text)
+            self.field_mapping_widget.set_field_data(data)
+            self.status_label.setText("JSON data applied successfully")
+            
+        except json.JSONDecodeError as e:
+            QMessageBox.warning(self, "Invalid JSON", f"JSON parsing error: {str(e)}")
+
+    def export_to_json(self):
+        """Export current field data to JSON"""
+        data = self.field_mapping_widget.get_field_data()
+        # Filter out empty fields
+        filtered_data = {k: v for k, v in data.items() if v.strip()}
+        
+        json_text = json.dumps(filtered_data, indent=2)
+        self.data_text_edit.setPlainText(json_text)
+
+    def save_mapping(self):
+        """Save current field mapping"""
+        if not self.current_pdf_path:
+            QMessageBox.warning(self, "No PDF", "Please select a PDF file first")
+            return
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Field Mapping", "", "JSON Files (*.json)"
+        )
+        
+        if file_path:
+            data = self.field_mapping_widget.get_field_data()
+            try:
+                with open(file_path, 'w') as f:
+                    json.dump(data, f, indent=2)
+                self.status_label.setText(f"Mapping saved to {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to save mapping: {str(e)}")
+
+    def load_mapping(self):
+        """Load field mapping from file"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Load Field Mapping", "", "JSON Files (*.json)"
+        )
+        
+        if file_path:
+            try:
+                with open(file_path, 'r') as f:
+                    data = json.load(f)
+                self.field_mapping_widget.set_field_data(data)
+                self.status_label.setText(f"Mapping loaded from {file_path}")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to load mapping: {str(e)}")
+
+    def fill_form(self):
+        """Fill the PDF form with current data"""
+        if not self.current_pdf_path:
+            QMessageBox.warning(self, "No PDF", "Please select a PDF file first")
+            return
+
+        field_data = self.field_mapping_widget.get_field_data()
+        # Filter out empty fields
+        field_data = {k: v for k, v in field_data.items() if v.strip()}
+        
+        if not field_data:
+            QMessageBox.warning(self, "No Data", "Please enter some field data first")
+            return
+
+        output_path, _ = QFileDialog.getSaveFileName(
+            self, "Save Filled PDF", "", "PDF Files (*.pdf)"
+        )
+        
+        if output_path:
+            self.progress_bar.setVisible(True)
+            self.progress_bar.setValue(0)
+            self.status_label.setText("Filling PDF form...")
+            
+            self.filler_thread = PDFFormFiller(
+                self.current_pdf_path, field_data, output_path
+            )
+            self.filler_thread.form_filled.connect(self.on_form_filled)
+            self.filler_thread.error_occurred.connect(self.on_fill_error)
+            self.filler_thread.progress_updated.connect(self.progress_bar.setValue)
+            self.filler_thread.start()
+
+    def on_form_filled(self, output_path: str):
+        """Handle successful form filling"""
+        self.progress_bar.setVisible(False)
+        self.status_label.setText(f"Form filled successfully: {output_path}")
+        
+        reply = QMessageBox.question(
+            self, "Success", 
+            f"PDF form filled successfully!\n\nSaved to: {output_path}\n\nOpen the file?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            os.system(f'open "{output_path}"' if sys.platform == 'darwin' else f'start "{output_path}"')
+
+    def on_fill_error(self, error_message: str):
+        """Handle form filling error"""
+        self.progress_bar.setVisible(False)
+        self.status_label.setText("Error filling form")
+        QMessageBox.critical(self, "Error", error_message)
+
+def main():
+    """Main entry point for PDF Form Filler v3"""
+    app = QApplication(sys.argv)
+    app.setApplicationName("PDF Form Filler")
+    app.setApplicationVersion("3.0")
+    
+    # Set application icon if available
+    try:
+        app.setWindowIcon(QIcon("icon.png"))
+    except:
+        pass
+    
+    window = MainWindow()
+    window.show()
+    
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main()

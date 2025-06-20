@@ -34,8 +34,6 @@ class AIDataExtractor(QThread):
         self.number_to_description_map = number_to_description_map or {}
         # Store the path to the target form for context
         self.target_form_path = ""  # This will be set from the main window
-        # Initialize custom prompt to None - will be set by main_app.py if user edits
-        self.custom_prompt = None
         
         # Create a lookup table for common field types/locations to improve mapping
         self.field_type_map = {
@@ -224,231 +222,120 @@ class AIDataExtractor(QThread):
         
     def _get_intelligent_generic_prompt(self, text_context: str = "") -> str:
         """
-        Streamlined universal prompt that instructs the AI to intelligently analyze the form structure
-        and extract data accurately for the specific target form.
+        Enhanced universal prompt that instructs the AI to identify document types and extract data
+        accurately for the specific target form.
         """
+        # Get the field names from the loaded PDF form
+        field_names = [f.name for f in self.form_fields]
         target_form_name = os.path.basename(self.target_form_path) if self.target_form_path else "the target PDF"
-        mapping_form_name = os.path.basename(self.mapping_pdf_path) if self.mapping_pdf_path else "(Not provided)"
         
-        prompt = f"""You are an expert AI data extraction agent for legal forms. Your task is to extract information from source documents to fill a target PDF form.
+        # Generate explicit field mapping table
+        field_mapping_table = self._generate_field_mapping_table()
+        
+        prompt = f"""You are an expert AI data extraction agent for a universal PDF form filling system. Your task is to extract information from multiple source documents to fill a specific target PDF form. Follow these instructions carefully:
 
-TASK OVERVIEW:
-1. Examine the structure of the target form (which has field numbers)
-2. Analyze ALL source documents to extract relevant data
-3. Intelligently match the extracted data to the appropriate field numbers on the target form
-4. Return a clean JSON with field numbers and extracted values
+1. Target Form:
+The target form you will be filling is:
+<target_form>
+{{TARGET_FORM_NAME}}
+</target_form>
 
-KEY INPUT:
-- Target form to fill: "{target_form_name}"
-- Numbered mapping form: "{mapping_form_name}"
-- Multiple source documents (provided separately)
+2. Field Mapping:
+Use this field mapping table for correct field mapping:
+<field_mapping_table>
+{{FIELD_MAPPING_TABLE}}
+</field_mapping_table>
 
-EXTRACTION APPROACH:
+3. Field Names:
+The target form contains the following fields that need to be filled:
+<field_names>
+{{FIELD_NAMES}}
+</field_names>
 
-1. FORM ANALYSIS:
-   - The AI will be provided with a numbered PDF form showing field numbers
-   - Examine this form carefully to understand what information belongs in each field
-   - Fields are labeled with numbers - you must map extracted data to these field numbers
+4. Number to Description Map:
+Use this number-to-description map for field identification:
+<number_to_description_map>
+{{NUMBER_TO_DESCRIPTION_MAP}}
+</number_to_description_map>
 
-2. DOCUMENT ANALYSIS:
-   - CRITICAL: Process ALL source documents completely and equally
-   - Identify which documents contain relevant information for each field
-   - Documents may include petitions, financial statements, declarations, etc.
-   - Some documents may be different form types but contain relevant information
+5. Source Documents:
+You will be provided with multiple source documents. These may include case information, financial schedules, or other data. Analyze these documents thoroughly:
+<source_documents>
+{{SOURCE_DOCUMENTS}}
+</source_documents>
 
-3. INTELLIGENT MATCHING:
-   - Use semantic understanding to match source data to appropriate fields
-   - Understand what type of data each field requires (person name, address, dollar amount, etc.)
-   - Correctly distinguish between similar fields (petitioner vs respondent, assets vs debts)
+Step-by-Step Instructions:
 
-4. DATA PRIORITIES:
-   - Extract critical case information: case numbers, court information, party names, attorney details
-   - Extract financial information: assets, debts, accounts, property with descriptions and values
-   - Preserve exact formatting of dollar amounts, dates, and legal identifiers
+1. Document Analysis:
+   a. Analyze EVERY document COMPLETELY. This is critical - do not prioritize one document over others.
+   b. Identify document types (legal, financial, or other) and extract relevant information accordingly.
+   c. Cross-reference information appearing in multiple documents and select the most complete version.
 
-OUTPUT FORMAT:
-Return a clean JSON object with field numbers as keys and extracted values as values. Include confidence scores for each field:
+2. Data Extraction:
+   a. Extract all relevant information, including but not limited to:
+      - Attorney information (full name, firm, address, phone, email, bar number)
+      - Party information (petitioner and respondent full names)
+      - Case details (court county, case number, hearing dates, judge information)
+      - Financial information (all assets and debts from all documents)
+   b. Keep all dollar values exactly as formatted in the source.
+   c. Ensure all totals are calculated correctly across all documents.
+
+3. Field Mapping:
+   a. Match extracted information to the most appropriate target field using the field mapping table and number-to-description map.
+   b. Extract actual data values, not field labels.
+   c. Handle multi-part data (e.g., addresses) appropriately.
+
+Output Format:
+Return a single, clean JSON object with the EXACT FIELD NAMES as keys (not field numbers). Include an "extracted_data" object and a "confidence_scores" object. For example:
 
 ```json
-{{
-    "extracted_data": {{
-        "1": "Value for field 1",
-        "6": "MARK PIESNER (SBN 277274), ARCPOINT LAW, P.C.",
-        "10": "JOHN DOE",
-        "16": "REAL ESTATE",
-        "18": "10,000.00"
-    }},
-    "confidence_scores": {{
-        "1": 0.95,
-        "6": 0.99,
-        "10": 0.90,
-        "16": 0.85,
-        "18": 0.92
-    }}
-}}
+{
+    "extracted_data": {
+        "FieldName1": "ExtractedValue1",
+        "FieldName2": "ExtractedValue2"
+    },
+    "confidence_scores": {
+        "FieldName1": 0.95,
+        "FieldName2": 0.99
+    }
+}
 ```
+        Ensure all field names match the target form exactly, including any prefixes or suffixes.
 
-CRITICAL SUCCESS REQUIREMENTS:
+6. Confidence Scores:
+    a. Provide confidence scores for each extracted field, indicating your certainty about the accuracy of the data.
+    b. Use a scale from 0.0 (not confident) to 1.0 (very confident).
+    c. If you are unsure about a field, provide a lower confidence score (e.g., 0.5).
+7. Critical Success Requirements:
 
-1. Return FIELD NUMBERS (not names) as keys in your JSON response
-2. Process EVERY source document fully - do not ignore any document
-3. Extract ALL relevant information from ALL documents
-4. Match data to the most appropriate field based on the numbered form
-5. Include ONLY the JSON in your response - no additional explanations
+Final Output:
+Provide your final output as a JSON object containing only the "extracted_data" and "confidence_scores" objects. Do not include any explanations, notes, or other text outside of this JSON object.
 
-**⚠️ IMPORTANT: The field numbers in the target form are ESSENTIAL for correct data placement. Always use these numbers as keys in your JSON response.⚠️**
+**CRITICAL SUCCESS REQUIREMENTS:**
+
+1. **ANALYZE ALL DOCUMENTS COMPLETELY:** You MUST thoroughly process EVERY document - not just the first or second one
+2. **MERGE INTELLIGENTLY:** When different documents contain complementary information:
+   - For legal information (names, case details): use data from all documents to build a complete picture
+   - For financial information: include ALL assets and debts from ALL documents
+   - For duplicated information: use the most complete/accurate version
+3. **COMPREHENSIVE EXTRACTION:** Extract as many fields as possible from ALL documents combined
+4. **BE PRECISE:** Extract exact values as they appear in the source documents
+5. **MAP ACCURATELY:** Ensure extracted values are mapped to the correct field numbers
+
+**⚠️ CRITICAL WARNING: IGNORING ANY DOCUMENT WILL RESULT IN INCOMPLETE DATA⚠️**
 """
         logger.debug(f"Generated enhanced AI prompt for target form: {target_form_name}")
-        
-        # Add debugging code to check if the placeholders in the prompt will be replaced
-        logger.debug("Checking placeholders in prompt template...")
-        placeholder_matches = re.findall(r'\{([^{}]*)\}', prompt)
-        if placeholder_matches:
-            logger.debug(f"Found these placeholders that need substitution: {placeholder_matches}")
-        else:
-            logger.debug("No placeholders found - prompt ready to use directly")
-        
-        # Add simpler diagnostic logging that doesn't try to format the prompt
-        try:
-            # Verify JSON example without attempting to format it
-            logger.debug("✅ JSON example section is correctly formatted with escaped braces")
-            
-            # Add version info to help with debugging
-            logger.debug(f"💡 Debug Info: Python: {__import__('sys').version.split()[0]}, "
-                       f"Extractor version: 4.3, Running: {__import__('os').path.basename(__file__)}")
-            
-        except Exception as e:
-            logger.error(f"❌ ERROR in JSON example formatting: {str(e)}")
-            
-        # Add debug logging for number_to_description_map
-        logger.info(f"🔍 DEBUG: number_to_description_map has {len(self.number_to_description_map)} entries")
-        if len(self.number_to_description_map) > 0:
-            # Log a sample of the mapping (first 3 entries)
-            sample_items = list(self.number_to_description_map.items())[:3]
-            logger.info(f"🔍 DEBUG: Sample mapping entries: {sample_items}")
-        else:
-            logger.warning("⚠️ WARNING: number_to_description_map is empty! This will reduce mapping accuracy.")
-            
-        # Check for mapping PDF path
-        if self.mapping_pdf_path:
-            logger.info(f"🔍 DEBUG: Using mapping_pdf_path: {self.mapping_pdf_path}")
-            if not os.path.exists(self.mapping_pdf_path):
-                logger.error(f"❌ ERROR: Mapping PDF does not exist at path: {self.mapping_pdf_path}")
-        else:
-            logger.warning("⚠️ WARNING: No mapping_pdf_path provided!")
-        
         return prompt
 
     def _extract_with_anthropic(self, pdf_paths: List[str], text_context: str) -> Tuple[Dict, Dict]:
         """Extract data using the enhanced llm_client with Anthropic."""
-        logger.info("🔄 Starting Anthropic extraction process")
-        
         if not self.api_key:
-            logger.error("❌ No Anthropic API key provided")
             raise ValueError("Anthropic API key required.")
         
-        # Set API key in environment
         os.environ["ANTHROPIC_API_KEY"] = self.api_key.strip()
-        logger.debug("✅ Set ANTHROPIC_API_KEY environment variable")
         
-        # Log critical diagnostic information
-        logger.info(f"📊 DIAGNOSTICS: {len(pdf_paths)} PDFs to process, {len(self.form_fields)} form fields loaded")
-        logger.info(f"📊 Target form path: {self.target_form_path or 'Not set'}")
-        logger.info(f"📊 Mapping PDF path: {self.mapping_pdf_path or 'Not set'}")
-        
-        # CRITICAL: Check for custom prompt before generating
-        if hasattr(self, 'custom_prompt') and self.custom_prompt:
-            logger.info(f"🔠 Using custom edited prompt ({len(self.custom_prompt)} chars)")
-            
-            # Check if custom prompt is excessively large
-            if len(self.custom_prompt) > 50000:
-                logger.warning(f"⚠️ Custom prompt is very large: {len(self.custom_prompt)} chars. This might cause memory issues.")
-            
-            # Log the first few characters for diagnostics
-            logger.debug(f"🔍 Custom prompt start: {self.custom_prompt[:100]}...")
-            
-            try:
-                # Start with the custom prompt
-                prompt = self.custom_prompt
-                
-                # Pre-define all possible placeholder values to avoid variable scope issues
-                target_form_name = os.path.basename(self.target_form_path) if self.target_form_path else "the target PDF"
-                field_names = [f.name for f in self.form_fields]
-                field_names_json = json.dumps(field_names, indent=2)
-                
-                # Define empty defaults for values that might not be generated
-                field_mapping_table = ""
-                number_map_json = "{}"
-                
-                # Only generate mapping table if the placeholder exists (this is expensive)
-                if "{FIELD_MAPPING_TABLE}" in prompt:
-                    try:
-                        logger.debug("🔄 Generating field mapping table...")
-                        field_mapping_table = self._generate_field_mapping_table()
-                        logger.debug(f"✅ Field mapping table generated: {len(field_mapping_table)} chars")
-                        
-                        # Check if the field mapping table is too large
-                        if len(field_mapping_table) > 30000:
-                            logger.warning(f"⚠️ Field mapping table is very large: {len(field_mapping_table)} chars. Truncating.")
-                            field_mapping_table = field_mapping_table[:30000] + "\n[... TRUNCATED DUE TO SIZE ...]"
-                    except Exception as mapping_err:
-                        logger.error(f"❌ Error generating field mapping table: {mapping_err}", exc_info=True)
-                        field_mapping_table = "ERROR GENERATING FIELD MAPPING TABLE"
-                
-                # Generate number_to_description_map JSON if needed
-                if "{NUMBER_TO_DESCRIPTION_MAP}" in prompt:
-                    try:
-                        # Check if the map exists and has content
-                        if not self.number_to_description_map:
-                            logger.warning("⚠️ number_to_description_map is empty but placeholder exists in prompt")
-                            number_map_json = "{}"
-                        else:
-                            # Make a safe copy of the map with string keys
-                            safe_map = {}
-                            for k, v in self.number_to_description_map.items():
-                                safe_map[str(k)] = str(v)
-                            number_map_json = json.dumps(safe_map, indent=2)
-                    except Exception as e:
-                        logger.error(f"❌ Error preparing NUMBER_TO_DESCRIPTION_MAP: {e}")
-                        number_map_json = "{}"
-                
-                # Prepare source documents text
-                source_text = text_context or "[Source documents will be processed by the LLM client]"
-                if len(source_text) > 10000:
-                    logger.warning(f"⚠️ Source text is very large: {len(source_text)} chars. Truncating.")
-                    source_text = source_text[:10000] + "\n[... TRUNCATED DUE TO SIZE ...]"
-                
-                # Replace common placeholders that might exist in the custom prompt
-                # Use a try/except for each replacement to avoid a complete failure
-                replacements = {
-                    "{TARGET_FORM_NAME}": target_form_name,
-                    "{FIELD_MAPPING_TABLE}": field_mapping_table,
-                    "{FIELD_NAMES}": field_names_json,
-                    "{NUMBER_TO_DESCRIPTION_MAP}": number_map_json,
-                    "{SOURCE_DOCUMENTS}": source_text
-                }
-                
-                # Do replacements
-                for placeholder, value in replacements.items():
-                    try:
-                        if placeholder in prompt:
-                            prompt = prompt.replace(placeholder, value)
-                            logger.info(f"✅ Replaced {placeholder} placeholder in custom prompt")
-                    except Exception as e:
-                        logger.error(f"❌ Error replacing {placeholder}: {e}")
-                        # Continue with other replacements instead of crashing
-                
-                logger.info(f"✅ Final custom prompt size after replacements: {len(prompt)} chars")
-                
-            except Exception as e:
-                logger.error(f"❌ CRITICAL ERROR processing custom prompt: {e}", exc_info=True)
-                # Fall back to a simple prompt if custom prompt processing fails
-                logger.warning("⚠️ Using fallback prompt due to error")
-                prompt = f"Extract data from the provided PDFs to fill {os.path.basename(self.target_form_path) if self.target_form_path else 'the target PDF'}."
-        else:
-            logger.info("No custom prompt found, generating standard prompt")
-            prompt = self._get_intelligent_generic_prompt(text_context)
-            
+        # Generate enhanced prompt with text context
+        prompt = self._get_intelligent_generic_prompt(text_context)
         model = self.model or "claude-3-5-sonnet-20240620"
         
         # CRITICAL DIAGNOSTICS: Log PDF paths in detail
@@ -456,92 +343,42 @@ CRITICAL SUCCESS REQUIREMENTS:
         for i, pdf_path in enumerate(pdf_paths):
             logger.info(f"PDF {i+1}: {os.path.basename(pdf_path)}")
             
-        # Enhanced multi-document processing with specific handling for FL-120 and FL-142
+        # Add specific document merging instructions if we have multiple PDFs
         if len(pdf_paths) > 1:
             doc_names = [os.path.basename(path) for path in pdf_paths]
             doc_info = "\n".join([f"- Document {i+1}: '{name}'" for i, name in enumerate(doc_names)])
             
-            # Detect if we have FL-120 and FL-142 forms specifically
-            has_fl120 = any("FL-120" in name for name in doc_names)
-            has_fl142 = any("FL-142" in name for name in doc_names)
-            
-            # Log document types for debugging
-            logger.info(f"Document types detected - FL-120: {has_fl120}, FL-142: {has_fl142}")
-            
-            # Create document-specific instructions based on detected form types
-            doc_specific_instructions = []
-            for i, name in enumerate(doc_names):
-                doc_num = i + 1
-                if "FL-120" in name:
-                    doc_specific_instructions.append(f"- Document {doc_num} '{name}': PETITION form containing CRITICAL case information, party details, attorney info")
-                elif "FL-142" in name:
-                    doc_specific_instructions.append(f"- Document {doc_num} '{name}': FINANCIAL form with ASSETS, DEBTS, and account details")
-                else:
-                    doc_specific_instructions.append(f"- Document {doc_num} '{name}': Extract ALL relevant information")
-            
-            doc_specific_text = "\n".join(doc_specific_instructions)
-            
             merging_instructions = f"""
-⚠️ CRITICAL DOCUMENT MERGING INSTRUCTIONS - READ CAREFULLY ⚠️
+⚠️ CRITICAL DOCUMENT MERGING INSTRUCTIONS ⚠️
 
 You have been provided with these {len(pdf_paths)} documents:
 {doc_info}
 
-⚠️ EQUAL PRIORITY REQUIRED ⚠️
-DO NOT prioritize the first document! The second document contains essential information that MUST be extracted.
-
-DOCUMENT TYPES AND ROLES:
-{doc_specific_text}
-
 YOU MUST PERFORM THESE STEPS:
-1. ANALYZE EACH DOCUMENT COMPLETELY - every page, every section, with EQUAL ATTENTION
+1. ANALYZE EACH DOCUMENT COMPLETELY - every page, every section
 2. DOCUMENT-BY-DOCUMENT REVIEW:
-   - Extract ALL data from EACH document with EQUAL thoroughness
-   - Pay special attention to legal forms like FL-120 which contain critical case details
-   - Extract ALL financial data from FL-142 forms
-
-3. COMPREHENSIVE EXTRACTION & MERGING:
-   - Basic case information (court, case #): Extract from ALL forms
-   - Party names and details: Extract from ALL forms
-   - Financial details: Extract from ALL forms, especially FL-142
-   - Hearing dates, jurisdictional info: Extract from ALL forms, especially FL-120
-   
-4. MERGE INTELLIGENTLY:
+   - For Document 1 '{doc_names[0]}': Extract ALL legal/case information AND ALL financial data
+   - For Document 2 '{doc_names[1]}': Extract ALL legal/case information AND ALL financial data
+   {"".join([f"   - For Document {i+3} '{name}': Extract ALL relevant information\n" for i, name in enumerate(doc_names[2:])]) if len(doc_names) > 2 else ""}
+3. MERGE INTELLIGENTLY:
    - Legal information (names, case numbers): Use information from ALL documents
    - Financial information: Include ALL assets and debts from ALL documents
    - For conflicting information: Use the most complete/detailed version
 
-EXAMPLES OF CORRECT MERGING:
-- Case numbers should be extracted from both FL-120 and FL-142 forms
-- Party details from both FL-120 (petitioner/respondent info) and FL-142 (financial details)
-- Attorney information from BOTH documents, not just the first one
-- ALL assets and debts must be included from ALL financial forms
+EXAMPLE OF CORRECT MERGING:
+- If Document 1 has a case number and Document 2 has a petitioner name, include BOTH
+- If Document 1 shows debts and Document 2 shows assets, include ALL debts AND ALL assets
+- If Document 1 has party names and Document 2 has additional party details, combine them
 
-SPECIAL INSTRUCTION FOR FL-120:
-If FL-120 is present, you MUST extract the following critical information:
-- Case number
-- Court jurisdiction and venue
-- Petitioner and Respondent full names
-- Marriage/Partnership dates
-- Statistical facts (dates, jurisdiction)
-- Requested orders (property division, spousal support)
-
-⚠️ WARNING: INCOMPLETE EXTRACTION WILL CAUSE SIGNIFICANT LEGAL PROBLEMS! ⚠️
+FAILURE TO PROPERLY MERGE DATA FROM ALL DOCUMENTS WILL MAKE THE FORM INCOMPLETE!
 """
             prompt += "\n\n" + merging_instructions
-            
-            # Add debug log to show enhanced instructions
-            logger.info("Added enhanced multi-document merging instructions with specific handling for legal forms")
 
         logger.info(f"Calling llm_client.generate_with_multiple_pdfs_claude with model {model}")
         logger.info(f"Prompt length: {len(prompt)} characters")
 
         # Use the powerful multi-PDF function from llm_client
         try:
-            # The prompt from _get_intelligent_generic_prompt() already has the templates ready
-            # We don't need to format it here as it's handled within the llm_client
-            logger.info("Using pre-formatted prompt template")
-            
             response_text = llm_client.generate_with_multiple_pdfs_claude(
                 model=model,
                 prompt=prompt,
@@ -568,73 +405,8 @@ If FL-120 is present, you MUST extract the following critical information:
 
         os.environ["OPENAI_API_KEY"] = self.api_key.strip()
 
-        # CRITICAL: Check for custom prompt before generating
-        if hasattr(self, 'custom_prompt') and self.custom_prompt:
-            logger.info(f"Using custom edited prompt ({len(self.custom_prompt)} chars)")
-            
-            # Start with the custom prompt
-            prompt = self.custom_prompt
-            
-            # Pre-define all possible placeholder values to avoid variable scope issues
-            target_form_name = os.path.basename(self.target_form_path) if self.target_form_path else "the target PDF"
-            field_names = [f.name for f in self.form_fields]
-            field_names_json = json.dumps(field_names, indent=2)
-            
-            # Define empty defaults for values that might not be generated
-            field_mapping_table = ""
-            number_map_json = "{}"
-            
-            # Only generate mapping table if the placeholder exists
-            if "{FIELD_MAPPING_TABLE}" in prompt:
-                try:
-                    field_mapping_table = self._generate_field_mapping_table()
-                except Exception as e:
-                    logger.error(f"Error generating field mapping table: {e}")
-                    field_mapping_table = "ERROR GENERATING FIELD MAPPING TABLE"
-            
-            # Generate number_to_description_map JSON if needed
-            if "{NUMBER_TO_DESCRIPTION_MAP}" in prompt:
-                try:
-                    if not self.number_to_description_map:
-                        number_map_json = "{}"
-                    else:
-                        # Make a safe copy of the map with string keys
-                        safe_map = {}
-                        for k, v in self.number_to_description_map.items():
-                            safe_map[str(k)] = str(v)
-                        number_map_json = json.dumps(safe_map, indent=2)
-                except Exception as e:
-                    logger.error(f"Error preparing NUMBER_TO_DESCRIPTION_MAP: {e}")
-                    number_map_json = "{}"
-            
-            # Prepare source documents text
-            source_text = text_context or "[Source documents will be processed by the LLM client]"
-            if len(source_text) > 10000:
-                logger.warning(f"Source text is very large: {len(source_text)} chars. Truncating.")
-                source_text = source_text[:10000] + "\n[... TRUNCATED DUE TO SIZE ...]"
-            
-            # Replace common placeholders
-            replacements = {
-                "{TARGET_FORM_NAME}": target_form_name,
-                "{FIELD_MAPPING_TABLE}": field_mapping_table,
-                "{FIELD_NAMES}": field_names_json,
-                "{NUMBER_TO_DESCRIPTION_MAP}": number_map_json,
-                "{SOURCE_DOCUMENTS}": source_text
-            }
-            
-            # Do replacements
-            for placeholder, value in replacements.items():
-                try:
-                    if placeholder in prompt:
-                        prompt = prompt.replace(placeholder, value)
-                        logger.info(f"Replaced {placeholder} placeholder in custom prompt")
-                except Exception as e:
-                    logger.error(f"Error replacing {placeholder}: {e}")
-            
-        else:
-            logger.info("No custom prompt found, generating standard prompt")
-            prompt = self._get_intelligent_generic_prompt(text_context)
-            
+        # Generate enhanced prompt with text context
+        prompt = self._get_intelligent_generic_prompt(text_context)
         model = self.model or "gpt-4o"
         
         # CRITICAL DIAGNOSTICS: Log PDF paths in detail
@@ -642,92 +414,42 @@ If FL-120 is present, you MUST extract the following critical information:
         for i, pdf_path in enumerate(pdf_paths):
             logger.info(f"PDF {i+1}: {os.path.basename(pdf_path)}")
             
-        # Enhanced multi-document processing with specific handling for FL-120 and FL-142
+        # Add specific document merging instructions if we have multiple PDFs
         if len(pdf_paths) > 1:
             doc_names = [os.path.basename(path) for path in pdf_paths]
             doc_info = "\n".join([f"- Document {i+1}: '{name}'" for i, name in enumerate(doc_names)])
             
-            # Detect if we have FL-120 and FL-142 forms specifically
-            has_fl120 = any("FL-120" in name for name in doc_names)
-            has_fl142 = any("FL-142" in name for name in doc_names)
-            
-            # Log document types for debugging
-            logger.info(f"OpenAI - Document types detected - FL-120: {has_fl120}, FL-142: {has_fl142}")
-            
-            # Create document-specific instructions based on detected form types
-            doc_specific_instructions = []
-            for i, name in enumerate(doc_names):
-                doc_num = i + 1
-                if "FL-120" in name:
-                    doc_specific_instructions.append(f"- Document {doc_num} '{name}': PETITION form containing CRITICAL case information, party details, attorney info")
-                elif "FL-142" in name:
-                    doc_specific_instructions.append(f"- Document {doc_num} '{name}': FINANCIAL form with ASSETS, DEBTS, and account details")
-                else:
-                    doc_specific_instructions.append(f"- Document {doc_num} '{name}': Extract ALL relevant information")
-            
-            doc_specific_text = "\n".join(doc_specific_instructions)
-            
             merging_instructions = f"""
-⚠️ CRITICAL DOCUMENT MERGING INSTRUCTIONS - READ CAREFULLY ⚠️
+⚠️ CRITICAL DOCUMENT MERGING INSTRUCTIONS ⚠️
 
 You have been provided with these {len(pdf_paths)} documents:
 {doc_info}
 
-⚠️ EQUAL PRIORITY REQUIRED ⚠️
-DO NOT prioritize the first document! The second document contains essential information that MUST be extracted.
-
-DOCUMENT TYPES AND ROLES:
-{doc_specific_text}
-
 YOU MUST PERFORM THESE STEPS:
-1. ANALYZE EACH DOCUMENT COMPLETELY - every page, every section, with EQUAL ATTENTION
+1. ANALYZE EACH DOCUMENT COMPLETELY - every page, every section
 2. DOCUMENT-BY-DOCUMENT REVIEW:
-   - Extract ALL data from EACH document with EQUAL thoroughness
-   - Pay special attention to legal forms like FL-120 which contain critical case details
-   - Extract ALL financial data from FL-142 forms
-
-3. COMPREHENSIVE EXTRACTION & MERGING:
-   - Basic case information (court, case #): Extract from ALL forms
-   - Party names and details: Extract from ALL forms
-   - Financial details: Extract from ALL forms, especially FL-142
-   - Hearing dates, jurisdictional info: Extract from ALL forms, especially FL-120
-   
-4. MERGE INTELLIGENTLY:
+   - For Document 1 '{doc_names[0]}': Extract ALL legal/case information AND ALL financial data
+   - For Document 2 '{doc_names[1]}': Extract ALL legal/case information AND ALL financial data
+   {"".join([f"   - For Document {i+3} '{name}': Extract ALL relevant information\n" for i, name in enumerate(doc_names[2:])]) if len(doc_names) > 2 else ""}
+3. MERGE INTELLIGENTLY:
    - Legal information (names, case numbers): Use information from ALL documents
    - Financial information: Include ALL assets and debts from ALL documents
    - For conflicting information: Use the most complete/detailed version
 
-EXAMPLES OF CORRECT MERGING:
-- Case numbers should be extracted from both FL-120 and FL-142 forms
-- Party details from both FL-120 (petitioner/respondent info) and FL-142 (financial details)
-- Attorney information from BOTH documents, not just the first one
-- ALL assets and debts must be included from ALL financial forms
+EXAMPLE OF CORRECT MERGING:
+- If Document 1 has a case number and Document 2 has a petitioner name, include BOTH
+- If Document 1 shows debts and Document 2 shows assets, include ALL debts AND ALL assets
+- If Document 1 has party names and Document 2 has additional party details, combine them
 
-SPECIAL INSTRUCTION FOR FL-120:
-If FL-120 is present, you MUST extract the following critical information:
-- Case number
-- Court jurisdiction and venue
-- Petitioner and Respondent full names
-- Marriage/Partnership dates
-- Statistical facts (dates, jurisdiction)
-- Requested orders (property division, spousal support)
-
-⚠️ WARNING: INCOMPLETE EXTRACTION WILL CAUSE SIGNIFICANT LEGAL PROBLEMS! ⚠️
+FAILURE TO PROPERLY MERGE DATA FROM ALL DOCUMENTS WILL MAKE THE FORM INCOMPLETE!
 """
             prompt += "\n\n" + merging_instructions
-            
-            # Add debug log to show enhanced instructions
-            logger.info("Added enhanced OpenAI multi-document merging instructions with specific handling for legal forms")
 
         logger.info(f"Calling llm_client.generate_with_multiple_pdfs_openai with model {model}")
         logger.info(f"Prompt length: {len(prompt)} characters")
 
         # Use the powerful multi-PDF function from llm_client
         try:
-            # The prompt from _get_intelligent_generic_prompt() already has placeholders
-            # We don't need to format it here - let the llm_client handle it
-            logger.info("Using pre-formatted prompt template for OpenAI")
-            
             response_text = llm_client.generate_with_multiple_pdfs_openai(
                 model=model,
                 prompt=prompt,
@@ -754,83 +476,37 @@ If FL-120 is present, you MUST extract the following critical information:
             logger.info(f"Processing AI response of length: {len(response_text)} characters")
             logger.debug(f"Response begins with: {response_text[:100]}...")
             
-            # DIAGNOSTIC: Detect common JSON response patterns and log them
-            contains_json_marker = "```json" in response_text
-            contains_extraction_marker = "extracted_data" in response_text
-            contains_confidence_marker = "confidence_scores" in response_text
-            logger.info(f"JSON DIAGNOSTIC: json marker: {contains_json_marker}, extraction marker: {contains_extraction_marker}, confidence marker: {contains_confidence_marker}")
-            
-            # ENHANCED: More robust JSON extraction patterns
-            # First try the most specific pattern - looking for the extracted_data object
+            # Look for JSON in the response using regex for robust extraction
             match = re.search(r'({[\s\S]*"extracted_data"[\s\S]*})', response_text, re.DOTALL)
-            
-            # If that fails, try a more general pattern that looks for any large JSON object
-            if not match:
-                match = re.search(r'({[\s\S]*})', response_text, re.DOTALL)
-                
             if not match:
                 logger.error("No JSON object with extracted_data found in AI response.")
                 logger.debug(f"Response text (truncated): {response_text[:500]}...")
                 
-                # Enhanced diagnostics and recovery for when JSON is not found
+                # Additional diagnostics for when JSON is not found
                 if "{" in response_text and "}" in response_text:
-                    logger.debug("Found braces but couldn't extract valid JSON. Attempting multiple alternative extraction methods...")
-                    
-                    # Method 1: Try to find the outermost braces
+                    logger.debug("Found braces but couldn't extract valid JSON. Attempting alternative extraction...")
+                    # Try a more lenient approach - find the outermost braces
                     start = response_text.find('{')
                     end = response_text.rfind('}') + 1
                     if start != -1 and end > start:
                         try:
                             json_text = response_text[start:end]
-                            logger.debug(f"Method 1 - Outer braces JSON snippet: {json_text[:100]}...")
                             result = json.loads(json_text)
-                            logger.info("Successfully parsed JSON using alternative extraction Method 1")
+                            logger.info("Successfully parsed JSON using alternative extraction")
                             extracted_data = result.get("extracted_data", {})
-                            if not extracted_data and isinstance(result, dict):
-                                # If we have a dict but no extracted_data key, assume the whole dict is the data
-                                logger.info("No 'extracted_data' key found, using entire JSON object as data")
-                                extracted_data = result
                             confidence_scores = result.get("confidence_scores", {})
                             if extracted_data:
                                 return extracted_data, confidence_scores or {k: 0.8 for k in extracted_data.keys()}
-                        except json.JSONDecodeError as e:
-                            logger.debug(f"Method 1 extraction failed: {e}")
-                    
-                    # Method 2: Look for JSON within triple-backtick code blocks
-                    code_blocks = re.findall(r'```(?:json)?\s*([\s\S]*?)```', response_text)
-                    for i, block in enumerate(code_blocks):
-                        try:
-                            # Clean up the block
-                            clean_block = block.strip()
-                            if clean_block.startswith('{') and clean_block.endswith('}'):
-                                logger.debug(f"Method 2 - Found code block {i+1}, attempting to parse")
-                                result = json.loads(clean_block)
-                                logger.info(f"Successfully parsed JSON from code block {i+1}")
-                                extracted_data = result.get("extracted_data", {})
-                                if not extracted_data and isinstance(result, dict):
-                                    extracted_data = result
-                                confidence_scores = result.get("confidence_scores", {})
-                                if extracted_data:
-                                    return extracted_data, confidence_scores or {k: 0.8 for k in extracted_data.keys()}
                         except json.JSONDecodeError:
-                            logger.debug(f"Failed to parse code block {i+1}")
+                            logger.debug("Alternative extraction attempt failed")
                 
-                # Final fallback - look for smaller JSON objects or key-value pairs
+                # Final fallback - look for smaller JSON objects
                 small_matches = re.findall(r'{\s*"([^"]+)":\s*"([^"]+)"\s*}', response_text)
                 if small_matches:
-                    logger.info(f"Found {len(small_matches)} key-value pairs in response using regex")
+                    logger.info(f"Found {len(small_matches)} key-value pairs in response")
                     extracted_data = {k: v for k, v in small_matches}
                     return extracted_data, {k: 0.7 for k in extracted_data.keys()}
                 
-                # Ultimate fallback - look for field:value patterns in text
-                field_value_matches = re.findall(r'([A-Za-z0-9\[\]\.]+):\s*"?([^",\n]+)"?', response_text)
-                if field_value_matches:
-                    logger.info(f"Last resort: Found {len(field_value_matches)} potential field:value pairs in text")
-                    potential_data = {k.strip(): v.strip() for k, v in field_value_matches if len(k.strip()) > 3}
-                    if potential_data:
-                        return potential_data, {k: 0.5 for k in potential_data.keys()}
-                
-                logger.error("All extraction methods failed. No usable data found.")
                 return {}, {}
 
             json_text = match.group(1)
@@ -888,7 +564,7 @@ If FL-120 is present, you MUST extract the following critical information:
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to decode JSON from AI response: {e}")
-            logger.debug(f"Failed JSON text (truncated): {response_text[:500]}...")
+            logger.debug(f"Failed JSON text (truncated): {json_text[:500]}...")
             
             # For debugging, save the failed response to a file only if one doesn't exist
             try:
@@ -1123,3 +799,4 @@ class PDFFieldExtractor(QThread):
         except Exception as e:
             logger.error(f"pdftk error: {e}", exc_info=True)
             self.error_occurred.emit(f"An unexpected error occurred while extracting fields: {e}")
+

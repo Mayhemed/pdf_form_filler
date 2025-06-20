@@ -20,7 +20,7 @@ from PyQt6.QtCore import Qt
 class FormField:
     """Form field class to avoid circular imports"""
     name: str
-    field_type: str
+    type: str  # Changed to match models.py
     value: str = ""
     alt_text: str = ""
     flags: int = 0
@@ -74,7 +74,7 @@ class FieldMappingWidget(QWidget):
 
         # Create widgets for each field
         for field in fields:
-            group = QGroupBox(field.alt_text or field.name)
+            group = QGroupBox(field.alttext or field.name)
             group_layout = QGridLayout()
             
             # Field name (read-only)
@@ -86,17 +86,17 @@ class FieldMappingWidget(QWidget):
             
             # Field type
             group_layout.addWidget(QLabel("Type:"), 1, 0)
-            group_layout.addWidget(QLabel(field.field_type), 1, 1)
+            group_layout.addWidget(QLabel(field.type), 1, 1)
             
             # Value input
             group_layout.addWidget(QLabel("Value:"), 2, 0)
             
-            if field.field_type == "Button" and field.state_options:
+            if field.type == "Button" and field.state_options:
                 # Dropdown for buttons with options
                 widget = QComboBox()
                 widget.addItem("")  # Empty option
                 widget.addItems(field.state_options)
-            elif field.field_type == "Button":
+            elif field.type == "Button":
                 # Checkbox for simple buttons
                 widget = QCheckBox("Check this field")
             else:

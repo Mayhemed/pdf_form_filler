@@ -193,32 +193,72 @@ class AIDataExtractor(QThread):
             self.error_occurred.emit(error_msg)
 
     def _extract_from_file(self, file_path: str) -> str:
-        """Extract text from various file types"""
-        try:
-            file_path = Path(file_path)
+    """Extract text from various file types - RESTORED WORKING VERSION"""
+    print(f"DEBUG: Extracting text from file: {file_path}")
+    try:
+        ext = os.path.splitext(file_path)[1].lower()
+        
+        if ext == '.pdf':
+            # For PDFs, we need to extract text and also provide the file path for direct processing
+            print(f"DEBUG: PDF file detected: {os.path.basename(file_path)}")
+            file_name = os.path.basename(file_path)
+            extracted_text = ""
             
-            if file_path.suffix.lower() == '.pdf':
-                print(f"DEBUG: PDF file detected: {file_path.name}")
-                # For PDFs, instead of extracting text locally, return a marker
-                # that will tell the AI to process this PDF directly
-                return f"[PDF FILE: {file_path.name}] This is a PDF form that should be processed directly by the AI model."
+            # Try to extract text from the PDF first
+            try:
+                import PyPDF2
+                with open(file_path, 'rb') as pdf_file:
+                    reader = PyPDF2.PdfReader(pdf_file)
+                    text_content = []
+                    for page_num in range(len(reader.pages)):
+                        page = reader.pages[page_num]
+                        text_content.append(page.extract_text())
+                    extracted_text = "\n\n".join(text_content)
+                    print(f"DEBUG: Extracted {len(extracted_text)} chars of text from PDF")
+            except Exception as e:
+                print(f"DEBUG: Error extracting text from PDF: {str(e)}")
             
-            elif file_path.suffix.lower() in ['.txt', '.md', '.csv']:
-                with open(file_path, 'r', encoding='utf-8') as file:
-                    return file.read()
+            # Add context about what form is being filled
+            form_context = ""
+            if hasattr(self, 'current_pdf_path') and self.current_pdf_path:
+                form_name = os.path.basename(self.current_pdf_path)
+                form_context = f"\n\nCONTEXT: This data is being used to fill the form '{form_name}'"
             
-            elif file_path.suffix.lower() in ['.json']:
-                with open(file_path, 'r', encoding='utf-8') as file:
-                    data = json.load(file)
-                    return json.dumps(data, indent=2)
-            
+            # For other providers, return the extracted text or a marker
+            if extracted_text:
+                return f"{extracted_text}{form_context}"
             else:
-                return f"Unsupported file type: {file_path.suffix}"
-                
-        except Exception as e:
-            print(f"ERROR reading file {file_path}: {str(e)}")
-            return f"Error reading file: {str(e)}"
-
+                return f"[PDF FILE: {file_name}] This is a PDF document that contains data to fill a form.{form_context}"
+        
+        elif ext in ['.txt', '.md', '.csv']:
+            # Read text files directly
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as file:
+                text = file.read()
+                print(f"DEBUG: Read {len(text)} chars from text file")
+                return text
+        
+        elif ext == '.json':
+            # Parse JSON and format it
+            with open(file_path, 'r', encoding='utf-8', errors='replace') as file:
+                try:
+                    data = json.load(file)
+                    text = json.dumps(data, indent=2)
+                    print(f"DEBUG: Parsed JSON with {len(text)} chars")
+                    return text
+                except Exception as e:
+                    # If JSON parsing fails, just return raw content
+                    file.seek(0)
+                    return file.read()
+        
+        else:
+            return f"[Unsupported file type: {ext}]"
+            
+    except Exception as e:
+        print(f"ERROR in _extract_text_from_file: {e}")
+        import traceback
+        print(traceback.format_exc())
+        return f"[Error reading file: {str(e)}]"
+    
     def _extract_from_image(self, image_path: str) -> str:
         """Extract text from images using OCR"""
         if not OCR_AVAILABLE:
@@ -276,62 +316,64 @@ class AIDataExtractor(QThread):
         if field_names:
             print(f"First field: {field_names[0]}")
         
-        prompt = f"""
-        You are extracting data from a COMPLETED PDF form to populate a blank PDF form with the same structure.
+        prompt = f"""# Legal Document Data Extraction Task
 
-TASK: Extract data from source documents to fill the numbered fields in the target form.
+You are extracting data from California family law documents to fill an FL-142 Schedule of Assets and Debts form.
 
-IMPORTANT: You have access to a numbered mapping PDF that shows field locations with numbers (1, 2, 3, etc.).
-Use the NUMBERS to match data precisely to the correct fields.
+## SOURCE DOCUMENTS:
+You are analyzing PDF documents that contain filled-in legal forms.
 
-TARGET FORM FIELDS TO POPULATE:
+## TARGET: FL-142 Form Fields  
+Extract data for these specific fields (use EXACT field names as keys):
+
 {json.dumps(dict(zip(field_names, field_descriptions)), indent=2)}
 
-COMPLETED FORM TEXT TO ANALYZE:
-{text[:8000]}
+## EXTRACTION STRATEGY:
 
-EXTRACTION RULES:
-1. Look for FILLED-IN VALUES, not field labels or instructions
-2. Extract actual data entries like:
-   - Names: "TAHIRA FRANCIS", "SHAWN ROGERS"  
-   - Case numbers: "24STFL00615"
-   - Monetary amounts: 
-   - Account details: 
-   - Addresses and descriptions of assets/debts
-   - Dates and other specific client information
+### 1. ATTORNEY INFORMATION (from FL-120 if present):
+- Attorney Name: Look for attorney signature, "Attorney for [Party]", or professional contact info
+- Attorney Phone: Phone numbers in attorney contact section  
+- Attorney Email: Email addresses in attorney contact section
+- Attorney Address: Professional address for attorney
 
-3. IGNORE:
-   - Form instructions and field labels
-   - Empty fields showing "0.00" or blank
-   - Template text like "Give details", "Attach copy", etc.
+### 2. CASE INFORMATION (from any source):
+- Case Number: Format like "24STFL00615"
+- Petitioner: First named party (often "PETITIONER:")  
+- Respondent: Second named party (often "RESPONDENT:")
+- Court County: Look for court jurisdiction like "LOS ANGELES"
 
-4. FOCUS ON:
-   - Actual names, numbers, and descriptions entered by the client
-   - Monetary values that are NOT 0.00
-   - Specific account information, addresses, creditor names
-   - Any handwritten or typed responses
+### 3. FINANCIAL DATA (from FL-142 if present):
+Look for FILLED-IN dollar amounts (ignore $0.00 entries):
+- Student Loans: Education debt amounts
+- Unsecured Loans: Personal loans, lines of credit
+- Credit Cards: Credit card balances and debts  
+- Other Debts: Additional liabilities
+- Total Debts: Sum of all debts
+- Assets: Bank accounts, real estate, vehicles
 
-5. For monetary fields, extract numbers like:
-   -  (checking account balance)
-   -  (student loan)
-   -  (loan amount)
-   -  (total debts)
+## CRITICAL RULES:
 
-RETURN FORMAT:
+✅ **USE EXACT FIELD NAMES** - Return the exact field name from the list above as the key
+✅ **EXTRACT ACTUAL DATA ONLY** - filled-in values, not blank fields or form labels
+✅ **IGNORE TEMPLATE TEXT** - Skip instructions like "Give details", "Attach copy"
+✅ **LOOK FOR REAL VALUES** - Names, dollar amounts, case numbers, contact info
+✅ **CROSS-REFERENCE DOCUMENTS** - Use attorney info from FL-120 for attorney fields
+
+## DOCUMENT CONTENT TO ANALYZE:
+{text[:6000]}
+
+Extract all relevant data and return in this exact JSON format:
+
 {{
     "extracted_data": {{
-        "field_name": "actual_client_value"
+        "EXACT_FIELD_NAME": "extracted_value"
     }},
     "confidence_scores": {{
-        "field_name": 0.95
+        "EXACT_FIELD_NAME": 0.95
     }}
 }}
 
-Extract only the CLIENT'S ACTUAL DATA ENTRIES, not form structure or empty fields.
-
-IMPORTANT: If you see text like '[PDF FILE: filename.pdf]', this indicates a PDF form is being processed.
-In these cases, you should focus on extracting form field values that might be present in the data.
-        """
+Focus on quality over quantity - extract what you can clearly identify."""
         
         try:
             # Set environment variable for OpenAI API key
@@ -344,7 +386,7 @@ In these cases, you should focus on extracting form field values that might be p
             print(f"Calling llm_client.generate_with_openai with model: {openai_model}")
             
             # ENHANCED_PDF_PROCESSING_PATCH: Use numbered PDF for accurate field matching
-            mapping_info = self._create_form_mapping()
+            mapping_info = self._get_or_create_form_mapping()
             numbered_pdf_path = mapping_info.get("mapping_pdf") if mapping_info else None
             
             if numbered_pdf_path and os.path.exists(numbered_pdf_path):
@@ -386,117 +428,148 @@ In these cases, you should focus on extracting form field values that might be p
             self.show_message.emit("OpenAI API Error", f"Error: {str(e)}")
             return {}, {}
 
-    def _extract_with_anthropic(self, text: str) -> Tuple[Dict[str, str], Dict[str, float]]:
-        """Extract data using Anthropic Claude via llm_client"""
-        if not self.api_key:
-            raise ValueError("Anthropic API key required")
+    def create_fixed_anthropic_method():
+        """Create the fixed anthropic extraction method text"""
         
-        print("="*50)
-        print("CLAUDE EXTRACTION DEBUGGING")
-        print(f"API Key length: {len(self.api_key)} chars")
-        print(f"Model specified: {self.model}")
-        print(f"Text length for analysis: {len(text)} chars")
-        
-        try:
-            # Import our llm_client module
-            import llm_client
-            
-            # Set the API key in environment (llm_client uses this)
-            os.environ["ANTHROPIC_API_KEY"] = self.api_key.strip()
-            print(f"Set ANTHROPIC_API_KEY environment variable")
-            
-            field_names = [f.name for f in self.form_fields]
-            field_descriptions = [f.alt_text or f.name for f in self.form_fields]
-            
-            print(f"Number of fields to extract: {len(field_names)}")
-            if field_names:
-                print(f"First field: {field_names[0]}")
-            
-            # Use the model specified by the user, or fall back to a default
-            model = self.model if self.model else "claude-3-opus-20240229"
-            print(f"Using llm_client with Claude model: {model}")
-            
-            # Updated prompt with clearer formatting for better JSON output
-            prompt = f"""
-           You are extracting data from a COMPLETED PDF form to populate a blank PDF form with the same structure.
+        method_text = '''    def _extract_with_anthropic(self, text: str) -> Tuple[Dict[str, str], Dict[str, float]]:
+            """Extract data using Anthropic Claude via llm_client"""
+            if not self.api_key:
+                raise ValueError("Anthropic API key required")
 
-TASK: Extract data from source documents to fill the numbered fields in the target form.
+            print("="*50)
+            print("CLAUDE EXTRACTION DEBUGGING")
+            print(f"API Key length: {len(self.api_key)} chars")
+            print(f"Model specified: {self.model}")
+            print(f"Text length for analysis: {len(text)} chars")
 
-IMPORTANT: You have access to a numbered mapping PDF that shows field locations with numbers (1, 2, 3, etc.).
-Use the NUMBERS to match data precisely to the correct fields.
-
-TARGET FORM FIELDS TO POPULATE:
-{json.dumps(dict(zip(field_names, field_descriptions)), indent=2)}
-
-COMPLETED FORM TEXT TO ANALYZE:
-{text[:8000]}
-
-EXTRACTION RULES:
-1. Look for FILLED-IN VALUES, not field labels or instructions
-2. Extract actual data entries like:
-   - Names: "TAHIRA FRANCIS", "SHAWN ROGERS"  
-   - Case numbers: "24STFL00615"
-   - Monetary amounts: 
-   - Account details: 
-   - Addresses and descriptions of assets/debts
-   - Dates and other specific client information
-
-3. IGNORE:
-   - Form instructions and field labels
-   - Empty fields showing "0.00" or blank
-   - Template text like "Give details", "Attach copy", etc.
-
-4. FOCUS ON:
-   - Actual names, numbers, and descriptions entered by the client
-   - Monetary values that are NOT 0.00
-   - Specific account information, addresses, creditor names
-   - Any handwritten or typed responses
-
-5. For monetary fields, extract numbers like:
-   -  (checking account balance)
-   -  (student loan)
-   -  (loan amount)
-   -  (total debts)
-
-RETURN FORMAT:
-{{
-    "extracted_data": {{
-        "field_name": "actual_client_value"
-    }},
-    "confidence_scores": {{
-        "field_name": 0.95
-    }}
-}}
-
-Extract only the CLIENT'S ACTUAL DATA ENTRIES, not form structure or empty fields.
-
-IMPORTANT NOTE FOR PDF FILES: If you see text like '[PDF FILE: filename.pdf]', this indicates
-a PDF form is being processed directly. For PDF forms, focus on extracting field values
-that appear to match the target form fields listed above.
-            """
-            
-            # Use the llm_client to generate the response
-            print(f"Calling llm_client.generate_with_claude with model: {model}")
-            response_text = llm_client.generate_with_claude(model, prompt)
-            print(f"Claude response received, length: {len(response_text)}")
-            print(f"First 100 chars of response: {response_text[:100]}")
-            
-            # Parse response - wrap in try/except to better handle parsing errors
             try:
-                # Find the start and end of the JSON object if there's any surrounding text
-                start = response_text.find('{')
-                end = response_text.rfind('}') + 1
-                
-                print(f"JSON start position: {start}, end position: {end}")
-                
-                if start >= 0 and end > start:
-                    json_text = response_text[start:end]
-                    print(f"Attempting to parse JSON of length {len(json_text)}")
-                    
-                    try:
-                        result = json.loads(json_text)
-                        extracted_data = result.get("extracted_data", {})
-                        confidence_scores = result.get("confidence_scores", {})
+                # Import our llm_client module
+                import llm_client
+
+                # Set the API key in environment (llm_client uses this)
+                os.environ["ANTHROPIC_API_KEY"] = self.api_key.strip()
+                print(f"Set ANTHROPIC_API_KEY environment variable")
+
+                field_names = [f.name for f in self.form_fields]
+                field_descriptions = [f.alt_text or f.name for f in self.form_fields]
+
+                print(f"Number of fields to extract: {len(field_names)}")
+                if field_names:
+                    print(f"First field: {field_names[0]}")
+
+                # Use the model specified by the user, or fall back to a default
+                model = self.model if self.model else "claude-3-opus-20240229"
+                print(f"Using llm_client with Claude model: {model}")
+
+                # Generic prompt for any form type
+                prompt = f"""You are analyzing documents to extract comprehensive data for a PDF form.
+
+    I have provided you with:
+    1. A NUMBERED MAPPING PDF showing field locations (numbered 1, 2, 3, etc.)  
+    2. SOURCE DOCUMENTS containing filled-in data
+
+    EXTRACTION TARGET: Extract data for ALL VISIBLE numbered fields in the mapping PDF.
+
+    COMPREHENSIVE EXTRACTION STRATEGY:
+    - Look at the numbered mapping PDF to see all available field numbers
+    - Extract data from ALL source documents
+    - Match data to the appropriate numbered field locations  
+    - Be comprehensive - try to fill as many fields as possible
+
+    EXTRACTION RULES:
+    ✅ **USE NUMBERED KEYS**: Return field numbers (1, 2, 3) NOT field names
+    ✅ **BE COMPREHENSIVE**: Try to extract data for as many numbered fields as visible
+    ✅ **EXTRACT FROM ALL SOURCES**: Look in ALL source documents
+    ✅ **EXTRACT REAL VALUES**: Only filled-in data, ignore blank fields
+
+    DOCUMENT CONTENT TO ANALYZE:
+    {text[:4000]}
+
+    RETURN FORMAT - Use numbered keys (1, 2, 3, etc.):
+
+    {{
+        "extracted_data": {{
+            "1": "extracted_value_1",
+            "2": "extracted_value_2", 
+            "3": "extracted_value_3"
+        }},
+        "confidence_scores": {{
+            "1": 0.95,
+            "2": 0.95,
+            "3": 0.95
+        }}
+    }}
+
+    CRITICAL: Extract data for AS MANY numbered fields as possible by looking at the mapping PDF."""
+
+                # Generate response using llm_client
+                response_text = llm_client.generate_with_claude(model, prompt)
+                print(f"Claude response received, length: {len(response_text)}")
+                print(f"First 100 chars of response: {response_text[:100]}")
+
+                # Parse response - wrap in try/except to better handle parsing errors
+                try:
+                    # Find the start and end of the JSON object if there's any surrounding text
+                    start = response_text.find('{')
+                    end = response_text.rfind('}') + 1
+
+                    print(f"JSON start position: {start}, end position: {end}")
+
+                    if start >= 0 and end > start:
+                        json_text = response_text[start:end]
+                        print(f"Attempting to parse JSON of length {len(json_text)}")
+
+                        try:
+                            result = json.loads(json_text)
+                            extracted_data = result.get("extracted_data", {})
+                            confidence_scores = result.get("confidence_scores", {})
+
+                            # If missing confidence scores, generate defaults
+                            if not confidence_scores and extracted_data:
+                                confidence_scores = {k: 0.85 for k in extracted_data.keys()}
+
+                            print(f"Successfully parsed JSON with {len(extracted_data)} extracted fields")
+                            
+                            # Convert numbered results to field names
+                            converted_data, converted_confidence = self._convert_numbered_to_field_names(
+                                extracted_data, confidence_scores
+                            )
+                            
+                            return converted_data, converted_confidence
+
+                        except json.JSONDecodeError as e:
+                            print(f"JSON decode error: {e}")
+                            print(f"JSON text: {json_text[:500]}...")
+                            return {}, {}
+                    else:
+                        print(f"Invalid JSON response from Claude: {response_text[:100]}...")
+                        return {}, {}
+
+                except Exception as e:
+                    print(f"Error parsing Claude response: {e}")
+                    return {}, {}
+
+            except Exception as e:
+                print(f"Claude API error: {str(e)}")
+                print(f"Exception type: {type(e).__name__}")
+                print(traceback.format_exc())
+                self.show_message.emit("Claude API Error", f"Error: {str(e)}")
+                return {}, {}'''
+        
+        return method_text
+
+    if __name__ == "__main__":
+        print("🔧 FIXED ANTHROPIC METHOD:")
+        print("=" * 60)
+        print(create_fixed_anthropic_method())
+        print("=" * 60)
+        print("\n✅ This is a clean, generic method that:")
+        print("- Works with any PDF form type")
+        print("- Uses numbered field mapping")
+        print("- Doesn't hardcode any form-specific information")
+        print("- Properly handles the try/except structure")
+        print("- Converts numbered results to field names")
+
                         
                         # If missing confidence scores, generate defaults
                         if extracted_data and not confidence_scores:

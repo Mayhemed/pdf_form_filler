@@ -1,12 +1,12 @@
 {
   "test_summary": {
-    "test_start_time": 1750375012.234627,
-    "overall_success": false,
+    "test_start_time": 1750375948.9212549,
+    "overall_success": true,
     "total_tests": 6,
-    "passed_tests": 3,
-    "failed_tests": 3,
-    "test_end_time": 1750375012.3413482,
-    "total_processing_time": 0.10672116279602051
+    "passed_tests": 4,
+    "failed_tests": 2,
+    "test_end_time": 1750375949.133336,
+    "total_processing_time": 0.2120811939239502
   },
   "phase_results": {
     "case_information": {
@@ -47,7 +47,7 @@
         "checks_passed": 9,
         "total_checks": 10
       },
-      "processing_time": 0.0020439624786376953,
+      "processing_time": 0.002465963363647461,
       "errors": [
         "One or more case information checks failed"
       ]
@@ -95,7 +95,7 @@
           "attorney_signature": 0.85
         }
       },
-      "processing_time": 5.245208740234375e-06,
+      "processing_time": 5.0067901611328125e-06,
       "errors": []
     },
     "fl142_extraction": {
@@ -143,7 +143,7 @@
           "form_title": 0.85
         }
       },
-      "processing_time": 1.2159347534179688e-05,
+      "processing_time": 1.2874603271484375e-05,
       "errors": [
         "FL-142 financial extraction failed verification"
       ]
@@ -178,25 +178,23 @@
           "signature_date": "December 12, 2024"
         }
       },
-      "processing_time": 1.9073486328125e-06,
+      "processing_time": 3.0994415283203125e-06,
       "errors": []
     },
     "form_filling": {
       "test_name": "pdf_form_filling",
-      "success": false,
+      "success": true,
       "details": {
-        "source_form": "/Users/markpiesner/Documents/Github/LegalTools/PDF_Form_Filler/old_versions/FL-142.pdf",
+        "source_form": "/Users/markpiesner/Documents/Github/LegalTools/PDF_Form_Filler/../../agentic_form_filler/Forms/fl142.pdf",
         "fields_to_fill": 14,
-        "fields_filled": 0,
-        "fill_success": false,
-        "output_path": null,
-        "filling_checks_passed": 0,
+        "fields_filled": 14,
+        "fill_success": true,
+        "output_path": "/Users/markpiesner/Documents/Github/LegalTools/PDF_Form_Filler/fl142_comprehensive_test_output.pdf",
+        "filling_checks_passed": 3,
         "total_filling_checks": 3
       },
-      "processing_time": 0.10432100296020508,
-      "errors": [
-        "PDF form filling failed verification"
-      ]
+      "processing_time": 0.20891380310058594,
+      "errors": []
     },
     "quality_verification": {
       "test_name": "quality_verification",
@@ -220,7 +218,7 @@
           "field_mapping_coverage"
         ]
       },
-      "processing_time": 6.198883056640625e-06,
+      "processing_time": 7.867813110351562e-06,
       "errors": []
     }
   }

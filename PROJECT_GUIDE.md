@@ -504,3 +504,295 @@ echo "See PROJECT_GUIDE.md for complete status and next steps"
 **Last Updated:** $(date)  
 **Current Version:** v4.2  
 **Status:** Production Ready with Enhanced AI Integration
+-FL120-signed.pdf
+# Add source 2: fl142 copy.pdf
+# Extract data with multi-threading enabled
+# Verify: 20-30 fields extracted from BOTH documents
+```
+
+### Expected Results (Multi-Threaded v4)
+```
+📊 PROCESSING SUMMARY:
+   Documents processed: 2
+   Successful extractions: 2
+   Total fields extracted: 25-30
+
+📄 DOCUMENT BREAKDOWN:
+   Rogers-FL120-signed.pdf: 12-15 fields (attorney/legal data)
+   fl142 copy.pdf: 8-12 fields (financial data)
+
+🔍 EXTRACTED DATA:
+• ATTORNEY_NAME: Mark Piesner, Arc Point Law PC [Field: ATTORNEY NAME]
+  (confidence: 99%, source: Rogers-FL120-signed.pdf)
+• ATTORNEY_PHONE: (818) 638-4456 [Field: ATTORNEY PHONE]
+  (confidence: 99%, source: Rogers-FL120-signed.pdf)
+• STUDENT_LOANS: $22,000.00 [Field: STUDENT LOANS]
+  (confidence: 95%, source: fl142 copy.pdf)
+• CREDIT_CARDS: $3,042.81 [Field: CREDIT CARDS]
+  (confidence: 95%, source: fl142 copy.pdf)
+[... 20+ more fields from both sources ...]
+```
+
+### Regression Testing
+```bash
+# Test v3 for comparison
+python pdf_form_filler1.py
+# Expected: 10-15 fields, single document focus
+
+# Test v4 
+python pdf_form_filler2.py
+# Expected: 20-30 fields, multi-document coverage
+```
+
+### Performance Testing
+```bash
+# Measure processing time
+time python pdf_form_filler2.py
+# Compare sequential vs parallel processing options
+```
+
+---
+
+## 🔧 CONFIGURATION OPTIONS
+
+### AI Configuration (config.yaml)
+```yaml
+ai_providers:
+  anthropic:
+    model: "claude-3-5-sonnet-20240620"
+    api_key_env: "ANTHROPIC_API_KEY"
+    max_tokens: 1000
+    
+  openai:
+    model: "gpt-4o"
+    api_key_env: "OPENAI_API_KEY"
+    max_tokens: 1000
+
+# Multi-threading settings
+processing:
+  max_workers: 3
+  enable_parallel: true
+  timeout_seconds: 30
+  
+# Document classification
+document_types:
+  financial_schedule:
+    patterns: ["fl-142", "schedule of assets", "student loans"]
+    strategy: "financial_focused"
+    
+  attorney_legal:
+    patterns: ["fl-120", "attorney or party", "telephone no"]
+    strategy: "attorney_focused"
+```
+
+### Environment Variables
+```bash
+# Required for AI processing
+export ANTHROPIC_API_KEY="your_anthropic_key"
+export OPENAI_API_KEY="your_openai_key"
+
+# Optional performance tuning
+export PDF_FILLER_MAX_WORKERS=3
+export PDF_FILLER_TIMEOUT=30
+export PDF_FILLER_LOG_LEVEL=INFO
+```
+
+---
+
+## 🚨 TROUBLESHOOTING GUIDE
+
+### Common Issues and Solutions
+
+#### "No module named 'PyPDF2'" 
+```bash
+# Solution: Activate virtual environment
+source myenv/bin/activate
+pip install PyPDF2 pdfplumber
+```
+
+#### "pdftk not found"
+```bash
+# macOS
+brew install pdftk-java
+
+# Ubuntu/Debian
+sudo apt-get install pdftk
+
+# Windows: Download pdftk from official site
+```
+
+#### Multi-threading not working
+```bash
+# Check thread pool creation
+python -c "import concurrent.futures; print('Threading available')"
+
+# Disable parallel processing as fallback
+# In UI: Uncheck "Parallel Processing" option
+```
+
+#### Low extraction results (< 15 fields)
+```bash
+# Check document content extraction
+python debug_pdf_extraction.py
+
+# Verify API keys are set
+echo $ANTHROPIC_API_KEY
+echo $OPENAI_API_KEY
+
+# Test with sequential processing
+# In UI: Uncheck "Parallel Processing"
+```
+
+#### API rate limit errors
+```bash
+# Reduce max workers in UI
+# Set "Max Workers" to 1 or 2
+
+# Add delays between API calls
+# Set timeout higher in configuration
+```
+
+### Debug Mode
+```bash
+# Enable detailed logging
+python -c "
+import logging
+logging.basicConfig(level=logging.DEBUG)
+exec(open('pdf_form_filler2.py').read())
+"
+
+# Check log file
+tail -f pdf_form_filler_v4_debug.log
+```
+
+---
+
+## 📈 SUCCESS METRICS
+
+### System Performance Indicators
+- **Field Coverage**: Target 20-30 fields from multi-document sources
+- **Processing Speed**: Target < 10 seconds for 2-document extraction
+- **Accuracy Rate**: Target > 90% confidence on extracted fields
+- **Source Attribution**: 100% fields mapped to source documents
+
+### User Experience Metrics
+- **Setup Time**: < 5 minutes from download to first extraction
+- **Error Rate**: < 5% failed extractions with proper setup
+- **User Satisfaction**: Successful form completion in < 2 minutes
+
+### Technical Metrics
+- **Thread Efficiency**: 70%+ reduction in processing time vs sequential
+- **Memory Usage**: < 200MB peak with 3 concurrent documents
+- **API Efficiency**: Balanced load across AI providers
+- **Error Recovery**: Graceful handling of individual document failures
+
+---
+
+## 🎯 PROJECT ROADMAP
+
+### Phase 1: Core Multi-Threading ✅ COMPLETED
+- Multi-threaded document processing
+- Document type classification
+- Intelligent result merging
+- Enhanced UI with threading controls
+
+### Phase 2: Testing and Optimization 🚧 IN PROGRESS
+- Comprehensive testing with legal document sets
+- Performance optimization and tuning
+- Error handling and edge case resolution
+- User feedback integration
+
+### Phase 3: Advanced Features 📋 PLANNED
+- OCR integration for scanned documents
+- Batch processing capabilities
+- Template and preset management
+- Advanced confidence scoring
+
+### Phase 4: Enterprise Integration 🔮 FUTURE
+- REST API development
+- Database integration
+- Audit logging and compliance
+- Role-based access control
+
+---
+
+## 🔗 INTEGRATION POINTS
+
+### Command Line Interface
+```bash
+# Future CLI integration
+python -m pdf_form_filler --target form.pdf --sources doc1.pdf doc2.pdf --output filled.pdf --threads 3
+```
+
+### API Integration (Planned)
+```python
+from pdf_form_filler import MultiThreadedProcessor
+
+processor = MultiThreadedProcessor(api_key="...", max_workers=3)
+result = processor.process_documents(target_form, source_docs)
+```
+
+### Batch Processing (Planned)
+```python
+# Process multiple form sets
+batch_processor = BatchProcessor()
+results = batch_processor.process_batch([
+    {"target": "form1.pdf", "sources": ["doc1.pdf", "doc2.pdf"]},
+    {"target": "form2.pdf", "sources": ["doc3.pdf", "doc4.pdf"]}
+])
+```
+
+---
+
+## 📋 QUICK REFERENCE
+
+### File Locations
+- **Main app**: `pdf_form_filler2.py` (v4 multi-threaded)
+- **Backup app**: `pdf_form_filler1.py` (v3 working baseline)
+- **Launcher**: `./run_pdf_filler.sh`
+- **Virtual env**: `myenv/`
+- **Logs**: `pdf_form_filler_v4_debug.log`
+
+### Key Commands
+```bash
+# Start v4 multi-threaded
+./run_pdf_filler.sh
+
+# Start v3 baseline
+source myenv/bin/activate && python pdf_form_filler1.py
+
+# Syntax check
+python3 -m py_compile pdf_form_filler2.py
+
+# Debug extraction
+python debug_pdf_extraction.py
+```
+
+### Test Data Locations
+- **Target form**: `/Users/markpiesner/Arc Point Law Dropbox/Forms/fl142blank.pdf`
+- **FL-120 source**: `../../agentic_form_filler/client_data/Rogers/Rogers-FL120-signed.pdf`
+- **FL-142 source**: `../../agentic_form_filler/client_data/Rogers/fl142 copy.pdf`
+
+---
+
+## 🎉 PROJECT STATUS SUMMARY
+
+**Current Status**: ✅ **MULTI-THREADED ARCHITECTURE COMPLETE**
+
+The PDF Form Filler has evolved from a single-threaded system that focused on the first document to a sophisticated multi-threaded architecture that:
+
+- **Processes documents in parallel** for faster extraction
+- **Uses specialized AI prompts** for different document types  
+- **Intelligently merges results** from all sources
+- **Provides source attribution** for data provenance
+- **Delivers comprehensive field coverage** (20-30 fields vs 10-15)
+
+**Ready for**: Comprehensive testing with real legal document sets and performance validation.
+
+**Next milestone**: Production deployment with batch processing capabilities.
+
+---
+
+*Last updated: December 19, 2024*  
+*Version: 4.0 Multi-Threaded Edition*  
+*Status: Active Development - Testing Phase*
